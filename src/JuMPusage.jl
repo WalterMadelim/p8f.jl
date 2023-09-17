@@ -9,6 +9,7 @@ model = Model()
 # print(model)
 set_optimizer(model, ()->AmplNLWriter.Optimizer("couenne"); add_bridges=true)
 # set_optimizer_attribute(model, MOI.Silent(), true)
+# set_attribute(model, "output_flag", false)
 optimize!(model)
 
 #
