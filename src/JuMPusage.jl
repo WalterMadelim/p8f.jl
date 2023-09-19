@@ -17,6 +17,9 @@ value(x) # value.(x) if x is a Vector
 
 shadow_price(c1) # Only for MILP solvers.
 set_lower_bound(x,1.)
+
+delete_lower_bound(x)
+
 set_upper_bound(y,3.)
 set_integer.(x)
 unset_integer.(y)
