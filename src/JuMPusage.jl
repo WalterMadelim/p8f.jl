@@ -54,3 +54,17 @@ the_iterable = [y for y in 1:10 if y % 3 == 0]
 # use eachindex; where distances isa 4-by-4 matrix
 @variable(model, x[i = 1:N, j = 1:N; distances[i, j] > 0])
 @objective(model, Min, sum(distances[i...] * x[i] for i in eachindex(x)))
+
+# @constraint(model, 2x-1 ⟂ x)
+# A special way to deal with this complementary-constraint
+model = Model();x=y=z=w=nothing;
+@variable(model,x≥0)
+@constraint(model,2x-1≥0)
+@constraint(model,(2x-1)x==0)
+@objective(model,Max,x) # superfluous, since feasible set is a singleton
+set_optimizer(model,Gurobi.Optimizer)
+get_attribute(model,"NonConvex") # -1 now
+optimize!(model) # error!
+set_attribute(model,"NonConvex",2)
+optimize!(model) # Continuous model is non-convex -- solving as a MIP; solved to Opt.
+
