@@ -60,3 +60,23 @@ julia> dual(c1),shadow_price(c1),reduced_cost(x)
 ```
 as for the dual(c1), it's abs value is from shadow_price(c1), But the sign of dual(c1) is related only to the (<=) sense of c1, and not to the sense of obj function.
 
+## For an == Constr, depends on its active half part
+```julia
+julia> print(model)
+Max -0.5 x
+Subject to
+ c3 : x == 1
+
+julia> dual(c3),shadow_price(c3),reduced_cost(x)
+(0.5, 0.5, -0.0)
+```
+This formulation is eq2 the formulation 
+```julia
+julia> print(model)
+Max -0.5 x
+Subject to
+ c2 : x >= 1
+
+julia> dual(c2),shadow_price(c2)
+(0.5, 0.5)
+```
