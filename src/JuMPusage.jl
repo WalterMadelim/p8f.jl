@@ -68,3 +68,4 @@ optimize!(model) # error!
 set_attribute(model,"NonConvex",2)
 optimize!(model) # Continuous model is non-convex -- solving as a MIP; solved to Opt.
 
+# Usage of undo = fix_discrete_variables(model), see the end at the LinearPrograms section of JuMP.
