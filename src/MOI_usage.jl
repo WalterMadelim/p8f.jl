@@ -1,5 +1,5 @@
-# import MathOptInterface as MOI
-# import Gurobi
+import MathOptInterface as MOI
+import Gurobi
 c = [1.0, 2.0, 3.0]
 w = [0.3, 0.5, 1.0]
 C = 3.2
@@ -10,7 +10,7 @@ x = MOI.add_variables(optimizer, length(c))
 
 # if you want to set an affine function f as the objective function
 terms = MOI.ScalarAffineTerm.(c, x) # a vector
-constant = 0.
+constant = 0. # === zero(Float64)
 f = MOI.ScalarAffineFunction(terms, constant)
 type_matters = MOI.ObjectiveFunction{typeof(f)}()
 MOI.set(
@@ -35,19 +35,20 @@ a_constraint_index = MOI.add_constraint(
 )
 
 type_matters = MOI.ZeroOne() # Binary Constraint
-for x_i in x
-    MOI.add_constraint(optimizer, x_i, type_matters)
-end
+# for x_i in x
+#     MOI.add_constraint(optimizer, x_i, type_matters)
+# end
+MOI.add_constraint.(optimizer, x, type_matters)
 
 MOI.optimize!(optimizer)
 
 attrs = [
     MOI.TerminationStatus(),
     MOI.PrimalStatus(),
-    MOI.DualStatus(), # no solution for an MIP
-    #MOI.ResultCount(),
+    MOI.DualStatus(), # NO_SOLUTION, due to an MIP
+    MOI.ResultCount(),
     MOI.ObjectiveValue()
 ]
 MOI.get.(optimizer, attrs) # get a first insight
 
-MOI.get(optimizer, MOI.VariablePrimal(), x) # it's also ok to directly change x to any x_i
+MOI.get.(optimizer, MOI.VariablePrimal(), x)
