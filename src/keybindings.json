@@ -26,3 +26,9 @@
         "command": "editor.action.duplicateSelection"
     }
 ]
+
+
+{
+    "workbench.colorTheme": "Default Light Modern",
+    "terminal.integrated.cursorStyle": "line",
+}
