@@ -1,6 +1,7 @@
 # About:  dual(c1), shadow_price(c1), reduced_cost(x)
 
 reduced_cost(x) is eq2 query the shadow_price of the (eq constr of its) active variable_bound.
+For more info about reduced_cost, refer to [In-place-iterative-method](https://jump.dev/JuMP.jl/dev/tutorials/algorithms/benders_decomposition/#In-place-iterative-method)
 
 ```julia
 julia> print(model)
