@@ -55,3 +55,16 @@ attrs = [
 MOI.get.(optimizer, attrs) # get a first insight
 
 MOI.get.(optimizer, MOI.VariablePrimal(), x)
+
+# check LP_duals
+# MOI.optimize!(o)
+# MOI.get(o, MOI.TerminationStatus())
+# MOI.get(o, MOI.ResultCount())
+# MOI.get(o, MOI.PrimalStatus())
+# MOI.get(o, MOI.ObjectiveValue())
+# MOI.get(o, MOI.DualStatus())
+# MOI.get(o, MOI.DualObjectiveValue())
+# MOI.get(o, MOI.VariablePrimal(1),x) # 1 can be omitted, in the result_count
+# MOI.get(o, MOI.ConstraintDual(1),c1) # dual associated to c1, if c1 is (actively) >=, then sgn(dual) = +, if c2 is <=, then -.
+# MOI.get(o, MOI.ConstraintDual(1),c2)
+
