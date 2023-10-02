@@ -33,6 +33,9 @@ a_constraint_index = MOI.add_constraint(
     f,
     s
 )
+# add an variable bound constraint
+# c1 = MOI.add_constraint(o,x,MOI.LessThan(3.))
+
 
 type_matters = MOI.ZeroOne() # Binary Constraint
 # for x_i in x
