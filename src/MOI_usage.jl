@@ -43,6 +43,7 @@ type_matters = MOI.ZeroOne() # Binary Constraint
 # end
 MOI.add_constraint.(optimizer, x, type_matters)
 
+# MOI.set(o, MOI.Silent(), true)
 MOI.optimize!(optimizer)
 
 attrs = [
