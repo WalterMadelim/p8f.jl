@@ -4,7 +4,7 @@ import Gurobi
 # Toy example at "The Benders Dual Decomposition Method"
 # pure Continuous version (pure B cut)
 
-# Ite 1 ----- -7.0 < 10.5 -----
+# Ite 1 ----- -7.0 < 8.0 -----
 # Ite 2 ----- -1.75 < 2.75 -----
 # Ite 3 ----- 1.625 < 2.75 -----
 # Ite 4 ----- 2.4 < 2.4 -----
@@ -66,6 +66,8 @@ function Q(y_bar)
     f = MOI.ScalarAffineFunction(terms, 0.)
     s = MOI.GreaterThan(-49.)
     MOI.add_constraint(o,f,s)
+    
+    MOI.add_constraint(o,x,MOI.GreaterThan(0.))
 
     # copy constr
     s = MOI.EqualTo(y_bar)
@@ -125,6 +127,7 @@ o,y,theta = model_init()
 # 2nd-stage cuts to avoid initial unboundedness
 initial_trial = 0.
 ret = Q(initial_trial)
+ub = 0. + ret.o # 1st-cost (without theta) and 2nd-cost, the first (at initial_trial)
 terms = [MOI.ScalarAffineTerm(1.,theta),MOI.ScalarAffineTerm(-ret.s,y)]
 f = MOI.ScalarAffineFunction(terms, 0.)
 s = MOI.GreaterThan(ret.c)
@@ -144,9 +147,10 @@ attrs = MOI.get.(o, attrs)
 
 # Get solution
 lb = MOI.get(o, MOI.ObjectiveValue())
-y_k = MOI.get(o, MOI.VariablePrimal(), y)
+y_k = MOI.get(o, MOI.VariablePrimal(), y) # goes to 1.0 (the first trial point derived by optimization)
 ret = Q(y_k)
-ub = 0. + ret.o # 1st-cost (without theta) and 2nd-cost
+new_ub = 0. + ret.o
+ub = ifelse(new_ub<ub,new_ub,ub)
 IteCnt += 1
 println("Ite $IteCnt ----- $lb < $ub -----")
 
