@@ -6,7 +6,7 @@ import Gurobi
 
 # Ite 1 ----- -7.0 < 10.5 -----
 # Ite 2 ----- -1.75 < 2.75 -----
-# Ite 3 ----- 1.625 < 2.9166666666666665 -----
+# Ite 3 ----- 1.625 < 2.75 -----
 # Ite 4 ----- 2.4 < 2.4 -----
 
 # Minimize ScalarAffineFunction{Float64}:
@@ -172,7 +172,8 @@ for mainloopcount in 1:100
         lb = MOI.get(o, MOI.ObjectiveValue())
         y_k = MOI.get(o, MOI.VariablePrimal(), y)
         ret = Q(y_k)
-        ub = 0. + ret.o # 1st-cost (without theta) and 2nd-cost
+        new_ub = 0. + ret.o # 1st-cost (without theta) and 2nd-cost
+        ub = ifelse(new_ub<ub,new_ub,ub)
         IteCnt += 1
         println("Ite $IteCnt ----- $lb < $ub -----")
     elseif abs(ub-lb) <= 1e-6
@@ -182,5 +183,4 @@ for mainloopcount in 1:100
         error(" In Main LOOP! ")
     end
 end
-
 
