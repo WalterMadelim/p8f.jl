@@ -1,3 +1,30 @@
+# solve a quadratic problem
+    o = Gurobi.Optimizer()
+    lambda = MOI.add_variable(o)
+    MOI.set(o,MOI.VariableName(),lambda,"λ")
+    d = MOI.add_variable(o)
+    MOI.set(o,MOI.VariableName(),d,"d")
+
+    terms = [MOI.ScalarAffineTerm(1.,d),MOI.ScalarAffineTerm(-1.,lambda)]
+    f = MOI.ScalarAffineFunction(terms, 0.)
+    s = MOI.EqualTo(1.)
+    MOI.add_constraint(o,f,s) # d = dist(λ,-1)
+
+    MOI.add_constraint(o,lambda,MOI.GreaterThan(2.))
+
+    qterms = [MOI.ScalarQuadraticTerm(1., d, d)]
+    terms = MOI.ScalarAffineTerm{Float64}[]
+    f = MOI.ScalarQuadraticFunction(qterms, terms, 0.)
+    type_matters = MOI.ObjectiveFunction{typeof(f)}()
+    MOI.set(o,type_matters,f)
+    MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+    MOI.optimize!(o)
+    MOI.get(o,MOI.VariablePrimal(),lambda)
+
+
+
+
+
 import MathOptInterface as MOI
 import Gurobi
 c = [1.0, 2.0, 3.0]
