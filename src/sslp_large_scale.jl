@@ -23,7 +23,7 @@ for s_ind in 1:scenes
     for j in 1:m
         y0[s_ind][j] = MOI.add_variable(o)
         MOI.add_constraint(o,y0[s_ind][j],MOI.GreaterThan(0.))
-        objterms[m + (s_ind-1) * m + j] = MOI.ScalarAffineTerm(p[s_ind] * q0[j],y0[s_ind][j])
+        objterms[m + (s_ind-1) * m + j] = MOI.ScalarAffineTerm(-p[s_ind] * q0[j],y0[s_ind][j])
     end # MOI.get(o,MOI.NumberOfVariables()) # 1530
 end
 
