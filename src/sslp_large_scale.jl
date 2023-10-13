@@ -38,7 +38,7 @@ for s_ind in 1:scenes
             objterms[baseInd + n*m*(s_ind-1) + m*(i-1) + j] = MOI.ScalarAffineTerm(p[s_ind] * d[i,j],y[s_ind][i,j])
             terms[j] = MOI.ScalarAffineTerm(1.,y[s_ind][i,j]) # constr 2
         end 
-        f = MOI.ScalarAffineFunction(terms, 0.)
+        local f = MOI.ScalarAffineFunction(terms, 0.)
         MOI.add_constraint(o,f,MOI.EqualTo(h[i,s_ind])) # constr 2
     end 
 end
@@ -51,7 +51,7 @@ for s_ind in 1:scenes
         end
         tmp1 = MOI.ScalarAffineTerm(-1.,y0[s_ind][j])
         tmp2 = MOI.ScalarAffineTerm(-u,x[j])
-        f = MOI.ScalarAffineFunction(vcat(tmp,tmp1,tmp2), 0.)
+        local f = MOI.ScalarAffineFunction(vcat(tmp,tmp1,tmp2), 0.)
         MOI.add_constraint(o,f,MOI.LessThan(0.)) # constr 1
     end
 end
