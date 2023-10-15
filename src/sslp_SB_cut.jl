@@ -8,12 +8,6 @@ const u = 1291.15
 const h = [0. 0 0 1 1 1 1 1 0 1 0 0 0 0 1 0 1 0 0 1 1 1 1 0 1 1 0 1 1 1 0 0 1 0 0 0 1 1 1 1 1 1 1 1 0 0 0 1 1 0; 0 0 0 0 0 0 1 1 0 0 0 0 1 0 0 1 0 0 1 1 1 0 0 0 0 0 0 0 1 0 1 1 1 0 1 1 0 0 1 0 1 1 0 1 1 0 0 1 0 0; 1 1 0 0 1 1 0 1 1 1 0 0 1 1 0 1 0 0 0 0 0 1 1 0 1 0 1 1 1 1 1 0 1 1 0 0 1 1 0 0 1 1 1 0 0 1 1 1 1 0; 0 1 1 1 1 0 0 1 1 0 1 1 0 0 1 0 1 0 1 1 0 1 0 1 0 0 0 1 0 1 1 1 0 1 0 0 0 0 0 0 1 0 1 1 1 0 0 1 0 1; 1 0 0 0 1 1 0 1 1 1 0 1 1 0 1 1 0 1 1 0 0 1 1 0 0 0 1 1 0 0 0 1 0 0 0 0 0 1 0 1 0 1 1 0 0 1 1 0 0 1; 0 0 0 1 1 0 1 0 0 0 1 1 1 0 1 1 1 0 1 1 1 1 1 0 0 1 0 1 0 0 0 0 0 1 0 1 1 0 1 0 1 1 0 0 0 0 0 1 1 1; 0 0 1 1 1 0 0 1 1 1 0 1 0 1 1 0 0 1 0 0 1 1 1 1 0 0 0 1 0 1 0 1 1 1 1 0 1 1 0 1 0 1 1 0 0 0 1 1 0 1; 1 1 1 1 1 1 1 0 0 0 1 1 1 0 0 0 0 0 0 0 1 1 0 1 0 1 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0; 0 1 1 1 0 0 0 0 0 1 0 0 1 0 1 0 1 1 0 1 0 1 0 0 0 0 1 1 1 0 1 1 1 0 1 0 1 0 0 1 1 0 0 1 1 0 0 0 1 0; 0 1 1 1 1 1 0 1 0 0 0 0 1 1 0 1 1 0 1 1 0 0 1 0 1 0 0 0 1 0 1 1 0 0 1 0 1 0 0 1 1 0 0 0 1 1 0 1 0 0; 0 1 0 0 0 1 0 1 1 1 1 0 1 1 1 1 0 0 1 0 1 0 0 1 1 0 0 1 1 0 1 0 1 1 0 0 1 0 0 1 0 0 0 0 0 0 0 1 0 1; 1 0 0 1 1 1 1 0 0 1 1 0 1 0 0 1 1 1 1 0 0 1 1 1 0 1 1 1 0 1 0 0 1 0 1 0 1 0 1 0 0 0 0 0 1 0 0 0 0 1; 1 1 1 1 1 0 0 1 0 0 1 0 0 1 0 0 1 0 1 0 0 0 0 1 1 1 0 0 0 1 1 0 1 0 1 0 1 1 1 0 1 0 1 1 1 1 0 0 1 0; 0 1 1 1 0 0 0 0 0 0 0 1 0 0 0 1 1 0 0 1 0 1 0 0 1 1 1 0 1 1 0 1 1 1 1 1 0 1 0 1 0 0 1 0 1 0 1 0 0 0; 0 1 0 0 1 0 0 1 1 0 0 1 0 1 0 1 0 1 1 1 0 1 1 1 1 1 0 0 1 0 0 0 0 1 1 0 1 1 1 0 1 1 0 0 0 0 1 0 0 1; 1 0 0 0 0 1 1 0 1 0 1 0 1 1 1 1 0 0 1 0 0 1 0 0 1 0 0 1 1 1 1 1 0 0 0 1 1 0 1 0 1 1 1 0 0 0 0 1 1 0; 1 1 1 0 1 0 0 0 0 1 1 0 1 0 1 1 1 0 0 0 0 1 1 1 0 0 1 0 0 0 1 0 0 0 1 0 1 0 0 1 0 0 1 1 0 0 0 0 1 0; 1 0 1 0 1 0 1 0 1 1 1 0 1 0 0 0 1 1 1 1 1 1 0 1 1 0 1 1 1 1 1 0 1 0 1 1 0 0 1 0 0 0 1 1 0 0 0 0 0 1; 0 0 0 1 0 0 0 1 1 1 0 1 0 0 1 1 1 1 0 0 1 0 0 0 1 0 0 1 0 0 0 1 0 1 0 1 1 0 1 1 0 1 0 0 0 0 0 1 0 1; 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 1 1 1 0 1 0 1 1 0 1 0 0 1 1 0 0 0 1 0 0 0 1 1 0 1 0 1 1 1 0 0 0 0 1; 1 0 1 1 0 1 0 1 1 0 1 0 1 1 1 1 0 0 1 0 1 1 1 1 1 1 0 0 1 1 0 0 1 0 0 0 1 0 0 1 0 0 0 0 1 1 1 0 0 0; 0 1 1 0 0 0 0 1 1 1 0 0 1 0 0 1 0 1 1 0 0 0 1 1 0 1 1 1 1 1 0 0 0 0 1 0 0 1 0 0 0 0 1 0 0 0 1 1 1 1; 0 0 0 1 1 0 0 1 0 1 1 1 1 0 0 0 1 0 0 0 0 0 1 1 1 1 0 0 0 1 0 0 1 0 1 0 1 0 1 0 0 1 1 0 1 1 0 0 0 0; 0 0 0 1 0 0 0 0 0 1 0 1 1 0 1 1 0 0 1 0 1 1 1 1 0 1 1 1 1 0 0 1 0 0 0 1 0 1 1 1 1 1 0 0 0 0 0 0 0 0; 0 0 0 0 1 1 0 1 0 0 1 0 0 0 1 0 1 0 1 1 1 0 1 1 1 1 0 0 1 1 1 0 0 1 0 1 0 1 0 0 0 0 0 0 0 0 0 1 1 0; 1 1 1 0 0 0 0 0 0 1 1 1 1 1 1 1 0 0 0 0 1 1 0 0 1 0 1 1 1 1 0 1 1 1 1 1 1 1 0 0 1 1 1 1 0 0 0 1 1 0; 0 1 0 0 0 0 1 0 1 1 0 1 1 0 0 0 1 0 1 1 1 1 1 0 1 1 1 0 0 0 1 1 0 0 0 1 0 0 0 1 1 1 1 1 1 0 1 0 0 0; 1 0 0 0 0 1 0 1 0 0 0 1 0 0 1 1 0 0 1 0 0 0 1 0 0 0 0 1 1 1 0 0 1 0 1 1 0 0 1 0 0 1 1 1 0 1 1 0 0 0; 0 0 0 1 0 0 1 0 0 1 1 1 1 1 1 1 0 0 0 0 0 0 0 1 0 1 1 1 0 1 1 1 1 0 0 1 1 1 1 1 0 1 0 0 0 1 0 1 0 1; 0 1 1 0 0 0 0 0 1 0 1 1 1 0 1 0 0 1 0 0 0 1 1 0 0 0 0 1 1 1 1 1 0 1 0 1 1 1 1 0 0 0 0 0 0 1 1 1 0 0; 1 1 1 1 1 0 0 1 0 1 0 0 1 0 1 0 1 0 1 0 1 1 1 1 1 1 0 1 1 0 0 1 0 0 1 0 1 1 0 1 1 1 0 1 0 0 1 0 1 0; 0 1 1 0 0 0 1 0 0 0 0 0 1 1 0 1 1 1 1 1 0 1 1 0 1 0 1 1 0 0 1 0 0 1 1 1 1 0 0 1 0 0 1 0 1 0 0 0 1 1; 0 1 1 0 0 1 0 0 0 0 1 1 1 1 1 0 1 1 1 1 0 1 1 0 0 1 0 1 0 0 0 0 1 0 1 1 0 0 0 0 0 1 1 0 0 0 1 1 1 0; 1 1 0 0 1 0 1 0 1 1 0 0 0 0 0 0 0 0 0 1 1 1 0 1 1 1 0 0 1 1 0 0 0 0 1 1 1 1 0 0 1 0 1 1 0 0 0 1 1 0; 0 0 1 1 0 1 1 1 1 0 1 0 1 0 0 1 0 0 1 1 1 1 0 1 0 0 1 0 0 0 0 0 1 0 0 1 1 0 1 1 1 0 0 1 1 0 0 0 0 0; 0 1 1 1 1 0 0 0 1 1 0 1 1 0 1 1 0 1 0 1 0 0 0 0 1 1 0 1 1 1 1 1 1 1 1 0 0 0 0 1 1 0 0 1 1 1 1 0 1 0; 1 1 0 0 0 1 0 0 1 1 0 0 0 0 0 1 1 0 0 1 0 0 0 1 1 1 1 0 1 1 0 0 0 1 1 1 1 0 0 1 0 1 1 1 0 1 0 1 0 0; 0 1 0 1 1 0 0 1 0 0 0 0 1 0 0 0 0 0 1 0 1 1 1 1 0 1 0 1 0 0 1 1 1 1 0 0 1 1 1 1 1 1 1 1 1 0 0 0 0 0; 0 1 1 0 1 1 0 0 0 1 1 1 0 1 0 1 1 1 0 0 0 1 0 0 0 0 0 1 1 0 0 1 1 1 0 1 0 0 1 0 1 1 1 0 0 0 1 1 1 0; 0 0 0 1 0 0 1 0 0 1 1 0 0 1 1 0 0 0 1 1 1 0 1 0 0 0 1 1 0 0 0 1 1 0 1 1 0 0 0 1 1 1 0 1 1 0 0 1 0 0; 0 0 1 0 0 1 0 1 0 0 1 1 1 0 0 1 1 0 0 0 1 1 0 0 1 0 1 1 1 0 0 0 0 1 1 1 1 0 0 0 0 1 0 1 0 1 1 0 0 1; 1 1 1 0 0 1 0 0 0 0 0 0 0 1 0 1 1 1 1 1 0 1 0 1 1 0 1 1 1 0 1 0 0 0 1 0 1 0 1 0 1 0 0 1 1 0 1 1 0 0; 0 0 1 0 1 0 0 1 0 0 0 1 1 0 1 1 1 0 1 1 1 1 0 1 1 1 0 1 0 0 1 0 1 1 0 1 0 1 0 1 1 0 0 0 0 1 0 1 1 0; 0 1 0 0 0 0 0 0 0 1 1 0 1 1 1 0 0 0 1 1 0 0 1 1 1 0 1 1 0 1 1 0 0 1 0 0 0 1 1 1 0 0 1 1 0 0 1 1 1 0; 0 0 0 1 0 1 1 1 1 1 1 0 0 0 0 0 1 0 0 1 0 0 0 0 1 1 1 1 0 0 0 1 1 0 0 0 0 0 0 0 1 1 1 1 0 0 1 1 0 1; 1 0 0 1 0 1 0 1 1 1 1 0 0 1 1 0 0 1 1 0 1 0 1 1 0 1 1 1 1 1 0 1 0 1 0 0 1 1 0 0 0 1 1 1 0 1 1 0 1 1; 0 1 0 0 0 0 0 1 0 1 0 1 0 1 1 1 0 1 1 1 0 1 0 1 0 1 1 0 1 0 1 1 0 1 0 0 1 0 1 0 1 0 0 0 1 1 1 1 1 0; 0 0 1 0 0 1 0 1 0 0 0 0 0 1 0 1 1 1 1 1 1 1 1 0 1 0 0 0 1 1 0 1 0 0 0 0 0 1 1 0 0 0 1 1 0 1 0 0 0 0; 0 1 1 1 0 1 0 1 1 1 1 1 1 1 1 1 0 1 0 0 1 0 0 0 0 0 1 1 0 1 1 0 0 1 0 1 0 0 1 1 0 0 1 1 0 0 0 0 0 1; 0 1 0 1 1 0 0 1 1 0 0 0 1 0 1 0 0 0 1 1 1 1 1 0 0 0 0 1 1 0 1 0 1 0 1 1 1 1 1 0 0 1 0 1 1 1 1 1 1 1; 1 1 1 0 1 1 0 0 0 1 1 1 0 0 1 1 0 1 0 1 1 1 1 0 1 0 0 1 0 1 0 0 0 1 1 0 1 1 0 0 0 1 0 1 1 1 1 0 1 0; 1 1 0 0 0 1 0 1 1 0 1 1 0 0 0 1 0 1 0 1 0 0 0 1 1 1 1 0 1 0 0 1 1 0 0 1 1 0 1 1 0 1 1 0 1 1 1 0 1 1; 0 1 1 0 0 1 1 0 0 0 1 1 0 1 0 0 0 1 0 0 0 1 1 1 0 1 1 1 1 1 1 1 1 0 0 0 0 0 0 1 1 0 1 0 1 1 0 1 0 1; 1 1 0 0 0 1 1 1 1 0 1 1 0 0 0 0 1 1 0 0 0 1 0 1 1 1 1 0 0 1 0 0 1 1 1 1 1 0 0 1 0 0 1 0 1 0 1 0 1 0; 0 1 0 0 0 0 1 1 1 0 0 1 1 1 1 1 0 1 1 1 1 1 1 0 0 1 0 0 1 0 1 0 0 0 1 1 0 0 1 0 1 1 0 1 1 1 0 1 0 1; 0 1 1 1 0 0 0 1 1 0 0 1 0 1 0 0 0 0 1 0 0 0 1 0 0 1 1 0 0 1 1 1 1 0 1 0 1 1 1 0 1 1 1 0 0 1 1 1 1 1; 1 1 0 1 1 1 1 1 0 1 1 0 0 0 0 0 1 0 0 1 0 0 0 0 1 0 0 1 1 1 1 0 0 1 1 0 1 0 1 0 0 1 0 1 0 1 0 1 0 0; 1 0 1 0 0 1 0 0 0 0 0 1 1 0 1 0 0 1 0 0 1 0 1 0 0 1 0 1 1 1 0 0 1 1 0 0 1 0 1 1 1 0 0 1 1 1 0 1 1 1; 1 1 1 1 1 0 0 1 0 0 0 1 0 1 1 1 1 0 1 0 1 0 0 0 1 0 1 0 0 0 1 0 0 0 0 0 1 1 1 1 1 0 0 0 0 1 0 0 1 0; 1 0 0 0 1 0 1 0 1 0 1 1 1 1 0 0 1 0 1 0 1 1 0 1 1 1 1 0 1 0 0 0 0 1 1 1 1 1 0 1 0 0 0 1 1 1 0 0 1 0; 0 1 0 1 0 0 0 0 1 0 1 0 0 0 0 1 1 0 0 1 1 0 1 1 0 1 1 1 0 0 1 0 1 1 0 0 1 0 0 1 0 0 0 1 0 0 0 0 1 0; 0 1 1 0 0 0 1 1 0 1 0 0 1 1 1 0 1 1 0 1 0 0 1 0 1 0 1 1 1 0 1 1 1 0 0 1 0 0 1 1 1 0 1 0 1 0 1 1 1 1; 1 1 1 0 1 0 0 1 1 1 1 1 1 1 1 0 1 0 1 0 1 1 1 1 1 0 1 1 1 1 1 0 0 1 0 1 1 1 0 1 0 1 0 0 0 1 1 1 1 1; 1 0 1 1 1 1 1 1 0 1 0 1 1 1 0 1 0 1 0 1 0 1 0 1 0 0 1 1 0 0 0 1 0 1 1 0 0 0 0 1 1 1 0 0 1 0 0 1 1 0; 1 1 1 1 1 1 0 1 1 1 1 0 0 1 0 1 0 0 0 0 0 0 0 1 0 1 0 0 0 1 0 1 0 0 1 1 1 1 0 1 0 1 0 1 1 0 1 0 0 0; 1 1 0 1 0 0 0 1 1 1 0 0 0 0 1 1 0 0 1 0 1 1 0 1 0 1 0 1 1 1 0 0 0 0 0 0 1 0 1 0 1 0 1 1 1 0 1 0 0 1; 1 1 1 1 1 0 0 0 1 0 1 1 0 0 0 1 1 0 1 1 1 1 0 1 0 0 1 1 0 0 0 0 1 0 1 0 1 1 1 0 1 0 1 1 0 1 0 0 1 1; 1 1 1 1 0 0 0 0 0 1 1 0 1 1 0 0 1 1 0 0 0 1 1 0 1 1 0 1 1 0 1 1 0 0 0 1 1 0 1 0 0 0 1 0 0 0 0 0 0 1; 1 0 1 0 0 1 0 0 1 1 0 0 1 0 1 1 1 0 1 1 0 0 0 1 0 1 1 0 0 0 0 1 1 0 1 0 0 1 1 1 1 0 1 0 0 0 1 1 0 0; 0 0 1 0 1 1 1 0 1 1 0 1 0 0 1 1 1 0 1 0 0 1 1 0 1 0 0 0 0 1 0 1 0 0 1 1 0 0 0 0 0 0 0 1 1 0 1 1 0 1]
 const p = fill(0.02,scenes)
 # The ObjVal should be -586.8199999999999 (MIP)
-#
-
-
-# is Q_SB double stage Int ???
-# ub can be updated only at dual-integer points!
-# otherwise you can only update lower-bound
 
 # Q: precise evaluate
 # Q_b: benders cut
@@ -22,14 +16,18 @@ const p = fill(0.02,scenes)
 #
 import MathOptInterface as MOI
 import Gurobi
-# line 196 Q_SB => Strengthened cut. chage to Q then => B cut
+
+function is_int(x)
+    bv = abs.(x .- round.(x)) .<= 1e-6
+    return sum(bv) == length(bv)
+end
 
 function terms_init(l)
     return [MOI.ScalarAffineTerm(0.,MOI.VariableIndex(0)) for _ in 1:l]
 end
 
 function Q(xt,s_ind) # precisely evaluate Q_s(x) at x = xt (not necessary int points)
-    @assert 0. <= minimum(xt) && maximum(xt) <= 1. # validity of trial point
+    @assert -1e-6 <= minimum(xt) && maximum(xt) <= 1. + 1e-6 # validity of trial point
     o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
     MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
     objterms = terms_init(m+n*m) # if no penalty
@@ -78,19 +76,16 @@ function Q(xt,s_ind) # precisely evaluate Q_s(x) at x = xt (not necessary int po
     return MOI.get(o,MOI.ObjectiveValue())
 end
 
-
-
-function Q_SB(xt,s_ind) # need to be modified!!!
-    ret = Q_B(xt,s_ind)
-    slope = ret.s # slope of SB cut is the same as B cut
-    # Model and variables
+function Q_B(xt,s_ind) # From Q: 1, relaxing y ∈ Y; 2, output
+    @assert -1e-6 <= minimum(xt) && maximum(xt) <= 1. + 1e-6 # validity of trial point
     o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
     MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
-    objterms = terms_init(m+n*m+m) # penalty has m terms
+    objterms = terms_init(m+n*m) # if no penalty
     x = similar(xt,MOI.VariableIndex) # copy vector of xt
+    cpc = similar(xt,MOI.ConstraintIndex{MOI.VariableIndex, MOI.EqualTo{Float64}})
     for j in 1:m
         x[j] = MOI.add_variable(o) # copy variable named x
-        MOI.add_constraint(o,x[j],MOI.ZeroOne()) # 1st-stage constraint
+        cpc[j] = MOI.add_constraint(o,x[j],MOI.EqualTo(xt[j])) # add copy constr immediately
     end
     y0 = similar(q0,MOI.VariableIndex)
     for j in 1:m
@@ -99,17 +94,16 @@ function Q_SB(xt,s_ind) # need to be modified!!!
         objterms[0+j] = MOI.ScalarAffineTerm(q0[j],y0[j])
     end
     y = similar(d,MOI.VariableIndex)
-    for i in 1:n
+    for i in 1:n # row 1:70
         terms = terms_init(m) # constr 2
-        for j in 1:m
+        for j in 1:m # col 1:30
             y[i,j] = MOI.add_variable(o)
             MOI.add_constraint(o,y[i,j],MOI.GreaterThan(0.))
             MOI.add_constraint(o,y[i,j],MOI.LessThan(1.))
-            # relax int of y, due to B cut
             objterms[m+m*(i-1)+j] = MOI.ScalarAffineTerm(-d[i,j],y[i,j]) # negative sign! 
             terms[j] = MOI.ScalarAffineTerm(1.,y[i,j]) # constr 2
         end 
-        local f = MOI.ScalarAffineFunction(terms, 0.)
+        f = MOI.ScalarAffineFunction(terms, 0.) # constr 2
         MOI.add_constraint(o,f,MOI.EqualTo(h[i,s_ind])) # constr 2
     end
     for j in 1:m
@@ -119,7 +113,58 @@ function Q_SB(xt,s_ind) # need to be modified!!!
         end
         terms[n+1] = MOI.ScalarAffineTerm(-1.,y0[j])
         terms[n+2] = MOI.ScalarAffineTerm(-u,x[j]) # use of copy variable
-        local f = MOI.ScalarAffineFunction(terms, 0.)
+        f = MOI.ScalarAffineFunction(terms, 0.)
+        MOI.add_constraint(o,f,MOI.LessThan(0.)) # constr 1
+    end
+    # obj function and SENSE of the s_ind subproblem
+    f = MOI.ScalarAffineFunction(objterms, 0.)
+    type_matters = MOI.ObjectiveFunction{typeof(f)}()
+    MOI.set(o,type_matters,f)
+    MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+    # optimize!
+    MOI.optimize!(o)
+    @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
+    obj = MOI.get(o,MOI.ObjectiveValue())
+    slope = MOI.get.(o, MOI.ConstraintDual(), cpc) # slope is given be the solver!
+    return (s=slope,o=obj) # o is the RHS of (10), while s is the -λ in (10)
+end
+
+function Q_SB(xt,s_ind) # precisely evaluate Q_s(x) at x = xt (not necessary int points)
+    slope = Q_B(xt,s_ind).s # check xt inside Q_B
+    o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
+    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    objterms = terms_init(m+n*m+m) # penalty has m terms
+    x = similar(xt,MOI.VariableIndex) # copy vector of xt
+    for j in 1:m
+        x[j] = MOI.add_variable(o) # copy variable named x
+        MOI.add_constraint(o,x[j],MOI.ZeroOne()) # 1st-stage constraint add to copy vector, after relaxing copy constr
+    end
+    y0 = similar(q0,MOI.VariableIndex)
+    for j in 1:m
+        y0[j] = MOI.add_variable(o)
+        MOI.add_constraint(o,y0[j],MOI.GreaterThan(0.))
+        objterms[0+j] = MOI.ScalarAffineTerm(q0[j],y0[j])
+    end
+    y = similar(d,MOI.VariableIndex)
+    for i in 1:n # row 1:70
+        terms = terms_init(m) # constr 2
+        for j in 1:m # col 1:30
+            y[i,j] = MOI.add_variable(o)
+            MOI.add_constraint(o,y[i,j],MOI.ZeroOne()) # 2nd-stage do NOT relax Int-constr!
+            objterms[m+m*(i-1)+j] = MOI.ScalarAffineTerm(-d[i,j],y[i,j]) # negative sign! 
+            terms[j] = MOI.ScalarAffineTerm(1.,y[i,j]) # constr 2
+        end 
+        f = MOI.ScalarAffineFunction(terms, 0.) # constr 2
+        MOI.add_constraint(o,f,MOI.EqualTo(h[i,s_ind])) # constr 2
+    end
+    for j in 1:m
+        terms = terms_init(n+2)
+        for i in 1:n
+            terms[i] = MOI.ScalarAffineTerm(d[i,j],y[i,j])
+        end
+        terms[n+1] = MOI.ScalarAffineTerm(-1.,y0[j])
+        terms[n+2] = MOI.ScalarAffineTerm(-u,x[j]) # use of copy variable
+        f = MOI.ScalarAffineFunction(terms, 0.)
         MOI.add_constraint(o,f,MOI.LessThan(0.)) # constr 1
     end
     # penalty in Obj
@@ -138,59 +183,6 @@ function Q_SB(xt,s_ind) # need to be modified!!!
     obj = MOI.get(o,MOI.ObjectiveValue()) + slope' * (xval - xt) # obj is True 2nd Obj (without penalty)
     return (s=slope,o=obj)
 end
-function Q_B(xt,s_ind)
-    o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
-    # MOI.set(o,MOI.Silent(),true)
-    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
-    objterms = terms_init(m+n*m) # if no penalty
-    x = similar(xt,MOI.VariableIndex) # copy vector of xt
-    cpc = similar(xt,MOI.ConstraintIndex{MOI.VariableIndex, MOI.EqualTo{Float64}}) # copy vector of xt
-    for j in 1:m
-        x[j] = MOI.add_variable(o) # copy variable named x
-        cpc[j] = MOI.add_constraint(o,x[j],MOI.EqualTo(xt[j])) # add copy constr immediately
-    end
-    y0 = similar(q0,MOI.VariableIndex)
-    for j in 1:m
-        y0[j] = MOI.add_variable(o)
-        MOI.add_constraint(o,y0[j],MOI.GreaterThan(0.))
-        objterms[0+j] = MOI.ScalarAffineTerm(q0[j],y0[j])
-    end
-    y = similar(d,MOI.VariableIndex)
-    for i in 1:n
-        terms = terms_init(m) # constr 2
-        for j in 1:m
-            y[i,j] = MOI.add_variable(o)
-            MOI.add_constraint(o,y[i,j],MOI.GreaterThan(0.))
-            MOI.add_constraint(o,y[i,j],MOI.LessThan(1.))
-            # relax int of y, due to B cut
-            objterms[m+m*(i-1)+j] = MOI.ScalarAffineTerm(-d[i,j],y[i,j]) # negative sign! 
-            terms[j] = MOI.ScalarAffineTerm(1.,y[i,j]) # constr 2
-        end 
-        local f = MOI.ScalarAffineFunction(terms, 0.)
-        MOI.add_constraint(o,f,MOI.EqualTo(h[i,s_ind])) # constr 2
-    end
-    for j in 1:m
-        terms = terms_init(n+2)
-        for i in 1:n
-            terms[i] = MOI.ScalarAffineTerm(d[i,j],y[i,j])
-        end
-        terms[n+1] = MOI.ScalarAffineTerm(-1.,y0[j])
-        terms[n+2] = MOI.ScalarAffineTerm(-u,x[j]) # use of copy variable
-        local f = MOI.ScalarAffineFunction(terms, 0.)
-        MOI.add_constraint(o,f,MOI.LessThan(0.)) # constr 1
-    end
-    # obj function and SENSE of the s_ind subproblem
-    f = MOI.ScalarAffineFunction(objterms, 0.)
-    type_matters = MOI.ObjectiveFunction{typeof(f)}()
-    MOI.set(o,type_matters,f)
-    MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
-    # optimize!
-    MOI.optimize!(o)
-    @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
-    obj = MOI.get(o,MOI.ObjectiveValue())
-    slope = MOI.get.(o, MOI.ConstraintDual(), cpc)
-    return (s=slope,o=obj) # slope, const; 2nd_stage_obj
-end
 
 function isnewtrial(p,x)
     for c in eachcol(p)
@@ -208,26 +200,30 @@ function isnewtrial(p,x)
 end
 
 const GRB_ENV = Gurobi.Env()
-o = Gurobi.Optimizer(GRB_ENV) # master
+o = Gurobi.Optimizer(GRB_ENV); # master
 MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
 objterms = terms_init(m+scenes); # without penalization
 x = similar(c,MOI.VariableIndex);
+
 for j in 1:m
     x[j] = MOI.add_variable(o)
+    MOI.set(o,MOI.VariableName(),x[j],"x[$j]")
     MOI.add_constraint(o, x[j], MOI.GreaterThan(0.))
     MOI.add_constraint(o, x[j], MOI.LessThan(1.))
-    # MOI.add_constraint(o, x[j], MOI.Integer())
+    # relaxing this to allow fractional trial point    # MOI.add_constraint(o, x[j], MOI.Integer())
     objterms[0+j] = MOI.ScalarAffineTerm(c[j],x[j])
 end
 theta = similar(p,MOI.VariableIndex);
 for s_ind in 1:scenes
     theta[s_ind] = MOI.add_variable(o) # no lowerbound known initially
+    MOI.set(o,MOI.VariableName(),theta[s_ind],"θ[$s_ind]")
     objterms[m+s_ind] = MOI.ScalarAffineTerm(p[s_ind],theta[s_ind])
 end
+
 # obj function and SENSE of master
-f = MOI.ScalarAffineFunction(objterms, 0.);
-type_matters = MOI.ObjectiveFunction{typeof(f)}()
-MOI.set(o,type_matters,f)
+(local f = MOI.ScalarAffineFunction(objterms, 0.);
+local type_matters = MOI.ObjectiveFunction{typeof(f)}();
+MOI.set(o,type_matters,f))
 MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
 
 xt = zeros(m); # initial trial point (Zero Trial Point)
@@ -235,15 +231,15 @@ tpool = reshape(xt,(m,1)); # trial_point_pool initialization, adding use tpool =
 cpool = [zeros(m+1,1) for _ in 1:scenes]; # cut_pool depends on each scene
 obj_2nd = similar(p); # store the objective value of the 2nd stage, with scenes
 for s_ind in 1:scenes
-    ret = Q_b(xt,s_ind)
-    obj_2nd[s_ind] = ret.o
+    obj_2nd[s_ind] = Q(xt,s_ind)
+    ret = Q_B(xt,s_ind)
     terms = [MOI.ScalarAffineTerm.(-ret.s,x); MOI.ScalarAffineTerm(1.,theta[s_ind])]
-    local f = MOI.ScalarAffineFunction(terms, 0.)
-    local cnst = ret.o - ret.s' * xt
+    f = MOI.ScalarAffineFunction(terms, 0.)
+    cnst = ret.o - ret.s' * xt
     cpool[s_ind] .= [-ret.s; cnst] # (initialization) record the cut coefficient, one pool per scene
     MOI.add_constraint(o,f,MOI.GreaterThan(cnst)) # The initial B cut to avoid Unboundness
 end
-ub = c' * xt + p' * obj_2nd # ub initialization
+ub = c' * xt + p' * obj_2nd # ub initialization = 14325.660000000002
 
 MOI.optimize!(o) # solve master problem
 @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
@@ -259,14 +255,22 @@ for trialPointNumber in 1:30000
         return
     end
     tpool = [tpool xt]
+    trial_is_int = is_int(xt)
+    if trial_is_int # update ub
+        @info "Int Trial x found in trialPointNumber $trialPointNumber"
+        for s_ind in 1:scenes
+            obj_2nd[s_ind] = Q(xt,s_ind)
+        end
+        newub = c' * xt + p' * obj_2nd
+        ub = newub < ub ? newub : ub
+    end
     for s_ind in 1:scenes
-        local ret = Q_SB(xt,s_ind)
-        obj_2nd[s_ind] = ret.o
-        local cnst = ret.o - ret.s' * xt
+        ret = trial_is_int ? Q_B(xt,s_ind) : Q_SB(xt,s_ind)
+        cnst = ret.o - ret.s' * xt # o is the RHS at (10)
         if -ret.s' * xt + thetat[s_ind] < cnst - 1e-6 # violation
-            local terms = [MOI.ScalarAffineTerm.(-ret.s,x); MOI.ScalarAffineTerm(1.,theta[s_ind])]
-            local f = MOI.ScalarAffineFunction(terms, 0.)
-            local newcol = [-ret.s; cnst]
+            terms = [MOI.ScalarAffineTerm.(-ret.s,x); MOI.ScalarAffineTerm(1.,theta[s_ind])] # λ = -slope
+            f = MOI.ScalarAffineFunction(terms, 0.)
+            newcol = [-ret.s; cnst]
             cpool[s_ind] = [cpool[s_ind] newcol] # record the cut coefficient, one pool per scene
             MOI.add_constraint(o,f,MOI.GreaterThan(cnst)) # The initial B cut to avoid Unboundness
         else
@@ -281,8 +285,6 @@ for trialPointNumber in 1:30000
             return
         end
     end
-    newub = c' * xt + p' * obj_2nd
-    ub = newub < ub ? newub : ub
     MOI.optimize!(o) # solve master problem
     @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
     lb = MOI.get(o,MOI.ObjectiveValue()) # c' * xt + p' * thetat
@@ -292,11 +294,3 @@ for trialPointNumber in 1:30000
     thetat = MOI.get.(o,MOI.VariablePrimal(),theta)
 end
 
-# lower bound stalling
-# [ Info: At Trial x 464: -824.881708013507 < -690.0143688074498
-# [ Info: At Trial x 465: -824.8816542046388 < -690.0143688074498
-# [ Info: At Trial x 466: -824.881637881434 < -690.0143688074498
-# [ Info: At Trial x 467: -824.8816030158689 < -690.0143688074498
-# [ Info: At Trial x 468: -824.8815492134138 < -690.0463452588344
-# [ Info: At Trial x 469: -824.8814690868651 < -690.0463452588344
-# [ Info: At Trial x 470: -824.8813831050076 < -690.0463452588344
