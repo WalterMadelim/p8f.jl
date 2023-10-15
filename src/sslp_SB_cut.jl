@@ -17,6 +17,12 @@ const p = fill(0.02,scenes)
 import MathOptInterface as MOI
 import Gurobi
 
+function silent_new_optimizer()
+    o = Gurobi.Optimizer(GRB_ENV); # master
+    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    return o
+end
+
 function is_int(x)::Bool
     bv = abs.(x .- round.(x)) .<= 1e-6
     return sum(bv) == length(bv)
@@ -28,8 +34,7 @@ end
 
 function Q(xt,s_ind)::Float64 # precisely evaluate Q_s(x) at x = xt (not necessary int points)
     @assert -1e-6 <= minimum(xt) && maximum(xt) <= 1. + 1e-6 # validity of trial point
-    o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
-    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    o = silent_new_optimizer() # the s_ind subproblem with trial point xt
     objterms = terms_init(m+n*m) # if no penalty
     x = similar(xt,MOI.VariableIndex) # copy vector of xt
     cpc = similar(xt,MOI.ConstraintIndex{MOI.VariableIndex, MOI.EqualTo{Float64}})
@@ -78,8 +83,7 @@ end
 
 function Q_B(xt,s_ind)::NamedTuple # From Q: 1, relaxing y ∈ Y; 2, output
     @assert -1e-6 <= minimum(xt) && maximum(xt) <= 1. + 1e-6 # validity of trial point
-    o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
-    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    o = silent_new_optimizer() # the s_ind subproblem with trial point xt
     objterms = terms_init(m+n*m) # if no penalty
     x = similar(xt,MOI.VariableIndex) # copy vector of xt
     cpc = similar(xt,MOI.ConstraintIndex{MOI.VariableIndex, MOI.EqualTo{Float64}})
@@ -131,8 +135,7 @@ end
 
 function Q_SB(xt,s_ind)::NamedTuple # precisely evaluate Q_s(x) at x = xt (not necessary int points)
     slope = Q_B(xt,s_ind).s # check xt inside Q_B
-    o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
-    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    o = silent_new_optimizer() # the s_ind subproblem with trial point xt
     objterms = terms_init(m+n*m+m) # penalty has m terms
     x = similar(xt,MOI.VariableIndex) # copy vector of xt
     for j in 1:m
@@ -186,8 +189,7 @@ end
 
 function Q_star(pai,pai0,s_ind)::Float64 # MIP problem (12)
     @assert pai0 >= -1.0e-6
-    o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with input(pai,pai0)
-    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    o = silent_new_optimizer() # the s_ind subproblem with input(pai,pai0)
     objterms = terms_init(m + m+n*m) # 2 stages
     x = similar(pai,MOI.VariableIndex) # 1st-stage decision vector
     for j in 1:m
@@ -250,8 +252,7 @@ function isnewtrial(p,x)::Bool
 end
 
 function perf_info_value_scene(s_ind)::Float64
-    o = Gurobi.Optimizer(GRB_ENV)
-    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    o = silent_new_optimizer()
     objterms = terms_init(m + m+n*m) # stage 1 and stage 2
     x = similar(c,MOI.VariableIndex)
     for j in 1:m
@@ -304,8 +305,7 @@ function perf_info_value(p)::Float64
 end
 
 function zpi_c1()::Float64 # no other constraints ??? astonishing!
-    o = Gurobi.Optimizer(GRB_ENV)
-    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    o = silent_new_optimizer()
     objterms = terms_init(m+scenes)
     x = similar(c,MOI.VariableIndex)
     for j in 1:m
@@ -340,10 +340,9 @@ function zpi_c1()::Float64 # no other constraints ??? astonishing!
     return MOI.get(o,MOI.ObjectiveValue())
 end
 
-const GRB_ENV = Gurobi.Env()
 
-o = Gurobi.Optimizer(GRB_ENV); # master
-MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+const GRB_ENV = Gurobi.Env()
+o = silent_new_optimizer()
 objterms = terms_init(m+scenes); # without penalization
 x = similar(c,MOI.VariableIndex);
 for j in 1:m
@@ -362,9 +361,10 @@ for s_ind in 1:scenes
 end
 
 # obj function and SENSE of master
-(local f = MOI.ScalarAffineFunction(objterms, 0.);
-local type_matters = MOI.ObjectiveFunction{typeof(f)}();
-MOI.set(o,type_matters,f))
+let f = MOI.ScalarAffineFunction(objterms, 0.)
+    type_matters = MOI.ObjectiveFunction{typeof(f)}()
+    MOI.set(o,type_matters,f)
+end
 MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
 
 xt = zeros(m); # initial trial point (Zero Trial Point)
@@ -385,7 +385,6 @@ for s_ind in 1:scenes
     cpool[s_ind] .= [-ret.s; cnst] # (initialization) record the cut coefficient, one pool per scene
     MOI.add_constraint(o,f,MOI.GreaterThan(cnst)) # The initial B cut to avoid Unboundness
 end
-
 
 MOI.optimize!(o) # solve master problem
 @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
