@@ -8,7 +8,7 @@ const u = 1291.15
 const h = [0. 0 0 1 1 1 1 1 0 1 0 0 0 0 1 0 1 0 0 1 1 1 1 0 1 1 0 1 1 1 0 0 1 0 0 0 1 1 1 1 1 1 1 1 0 0 0 1 1 0; 0 0 0 0 0 0 1 1 0 0 0 0 1 0 0 1 0 0 1 1 1 0 0 0 0 0 0 0 1 0 1 1 1 0 1 1 0 0 1 0 1 1 0 1 1 0 0 1 0 0; 1 1 0 0 1 1 0 1 1 1 0 0 1 1 0 1 0 0 0 0 0 1 1 0 1 0 1 1 1 1 1 0 1 1 0 0 1 1 0 0 1 1 1 0 0 1 1 1 1 0; 0 1 1 1 1 0 0 1 1 0 1 1 0 0 1 0 1 0 1 1 0 1 0 1 0 0 0 1 0 1 1 1 0 1 0 0 0 0 0 0 1 0 1 1 1 0 0 1 0 1; 1 0 0 0 1 1 0 1 1 1 0 1 1 0 1 1 0 1 1 0 0 1 1 0 0 0 1 1 0 0 0 1 0 0 0 0 0 1 0 1 0 1 1 0 0 1 1 0 0 1; 0 0 0 1 1 0 1 0 0 0 1 1 1 0 1 1 1 0 1 1 1 1 1 0 0 1 0 1 0 0 0 0 0 1 0 1 1 0 1 0 1 1 0 0 0 0 0 1 1 1; 0 0 1 1 1 0 0 1 1 1 0 1 0 1 1 0 0 1 0 0 1 1 1 1 0 0 0 1 0 1 0 1 1 1 1 0 1 1 0 1 0 1 1 0 0 0 1 1 0 1; 1 1 1 1 1 1 1 0 0 0 1 1 1 0 0 0 0 0 0 0 1 1 0 1 0 1 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0; 0 1 1 1 0 0 0 0 0 1 0 0 1 0 1 0 1 1 0 1 0 1 0 0 0 0 1 1 1 0 1 1 1 0 1 0 1 0 0 1 1 0 0 1 1 0 0 0 1 0; 0 1 1 1 1 1 0 1 0 0 0 0 1 1 0 1 1 0 1 1 0 0 1 0 1 0 0 0 1 0 1 1 0 0 1 0 1 0 0 1 1 0 0 0 1 1 0 1 0 0; 0 1 0 0 0 1 0 1 1 1 1 0 1 1 1 1 0 0 1 0 1 0 0 1 1 0 0 1 1 0 1 0 1 1 0 0 1 0 0 1 0 0 0 0 0 0 0 1 0 1; 1 0 0 1 1 1 1 0 0 1 1 0 1 0 0 1 1 1 1 0 0 1 1 1 0 1 1 1 0 1 0 0 1 0 1 0 1 0 1 0 0 0 0 0 1 0 0 0 0 1; 1 1 1 1 1 0 0 1 0 0 1 0 0 1 0 0 1 0 1 0 0 0 0 1 1 1 0 0 0 1 1 0 1 0 1 0 1 1 1 0 1 0 1 1 1 1 0 0 1 0; 0 1 1 1 0 0 0 0 0 0 0 1 0 0 0 1 1 0 0 1 0 1 0 0 1 1 1 0 1 1 0 1 1 1 1 1 0 1 0 1 0 0 1 0 1 0 1 0 0 0; 0 1 0 0 1 0 0 1 1 0 0 1 0 1 0 1 0 1 1 1 0 1 1 1 1 1 0 0 1 0 0 0 0 1 1 0 1 1 1 0 1 1 0 0 0 0 1 0 0 1; 1 0 0 0 0 1 1 0 1 0 1 0 1 1 1 1 0 0 1 0 0 1 0 0 1 0 0 1 1 1 1 1 0 0 0 1 1 0 1 0 1 1 1 0 0 0 0 1 1 0; 1 1 1 0 1 0 0 0 0 1 1 0 1 0 1 1 1 0 0 0 0 1 1 1 0 0 1 0 0 0 1 0 0 0 1 0 1 0 0 1 0 0 1 1 0 0 0 0 1 0; 1 0 1 0 1 0 1 0 1 1 1 0 1 0 0 0 1 1 1 1 1 1 0 1 1 0 1 1 1 1 1 0 1 0 1 1 0 0 1 0 0 0 1 1 0 0 0 0 0 1; 0 0 0 1 0 0 0 1 1 1 0 1 0 0 1 1 1 1 0 0 1 0 0 0 1 0 0 1 0 0 0 1 0 1 0 1 1 0 1 1 0 1 0 0 0 0 0 1 0 1; 1 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 1 1 1 0 1 0 1 1 0 1 0 0 1 1 0 0 0 1 0 0 0 1 1 0 1 0 1 1 1 0 0 0 0 1; 1 0 1 1 0 1 0 1 1 0 1 0 1 1 1 1 0 0 1 0 1 1 1 1 1 1 0 0 1 1 0 0 1 0 0 0 1 0 0 1 0 0 0 0 1 1 1 0 0 0; 0 1 1 0 0 0 0 1 1 1 0 0 1 0 0 1 0 1 1 0 0 0 1 1 0 1 1 1 1 1 0 0 0 0 1 0 0 1 0 0 0 0 1 0 0 0 1 1 1 1; 0 0 0 1 1 0 0 1 0 1 1 1 1 0 0 0 1 0 0 0 0 0 1 1 1 1 0 0 0 1 0 0 1 0 1 0 1 0 1 0 0 1 1 0 1 1 0 0 0 0; 0 0 0 1 0 0 0 0 0 1 0 1 1 0 1 1 0 0 1 0 1 1 1 1 0 1 1 1 1 0 0 1 0 0 0 1 0 1 1 1 1 1 0 0 0 0 0 0 0 0; 0 0 0 0 1 1 0 1 0 0 1 0 0 0 1 0 1 0 1 1 1 0 1 1 1 1 0 0 1 1 1 0 0 1 0 1 0 1 0 0 0 0 0 0 0 0 0 1 1 0; 1 1 1 0 0 0 0 0 0 1 1 1 1 1 1 1 0 0 0 0 1 1 0 0 1 0 1 1 1 1 0 1 1 1 1 1 1 1 0 0 1 1 1 1 0 0 0 1 1 0; 0 1 0 0 0 0 1 0 1 1 0 1 1 0 0 0 1 0 1 1 1 1 1 0 1 1 1 0 0 0 1 1 0 0 0 1 0 0 0 1 1 1 1 1 1 0 1 0 0 0; 1 0 0 0 0 1 0 1 0 0 0 1 0 0 1 1 0 0 1 0 0 0 1 0 0 0 0 1 1 1 0 0 1 0 1 1 0 0 1 0 0 1 1 1 0 1 1 0 0 0; 0 0 0 1 0 0 1 0 0 1 1 1 1 1 1 1 0 0 0 0 0 0 0 1 0 1 1 1 0 1 1 1 1 0 0 1 1 1 1 1 0 1 0 0 0 1 0 1 0 1; 0 1 1 0 0 0 0 0 1 0 1 1 1 0 1 0 0 1 0 0 0 1 1 0 0 0 0 1 1 1 1 1 0 1 0 1 1 1 1 0 0 0 0 0 0 1 1 1 0 0; 1 1 1 1 1 0 0 1 0 1 0 0 1 0 1 0 1 0 1 0 1 1 1 1 1 1 0 1 1 0 0 1 0 0 1 0 1 1 0 1 1 1 0 1 0 0 1 0 1 0; 0 1 1 0 0 0 1 0 0 0 0 0 1 1 0 1 1 1 1 1 0 1 1 0 1 0 1 1 0 0 1 0 0 1 1 1 1 0 0 1 0 0 1 0 1 0 0 0 1 1; 0 1 1 0 0 1 0 0 0 0 1 1 1 1 1 0 1 1 1 1 0 1 1 0 0 1 0 1 0 0 0 0 1 0 1 1 0 0 0 0 0 1 1 0 0 0 1 1 1 0; 1 1 0 0 1 0 1 0 1 1 0 0 0 0 0 0 0 0 0 1 1 1 0 1 1 1 0 0 1 1 0 0 0 0 1 1 1 1 0 0 1 0 1 1 0 0 0 1 1 0; 0 0 1 1 0 1 1 1 1 0 1 0 1 0 0 1 0 0 1 1 1 1 0 1 0 0 1 0 0 0 0 0 1 0 0 1 1 0 1 1 1 0 0 1 1 0 0 0 0 0; 0 1 1 1 1 0 0 0 1 1 0 1 1 0 1 1 0 1 0 1 0 0 0 0 1 1 0 1 1 1 1 1 1 1 1 0 0 0 0 1 1 0 0 1 1 1 1 0 1 0; 1 1 0 0 0 1 0 0 1 1 0 0 0 0 0 1 1 0 0 1 0 0 0 1 1 1 1 0 1 1 0 0 0 1 1 1 1 0 0 1 0 1 1 1 0 1 0 1 0 0; 0 1 0 1 1 0 0 1 0 0 0 0 1 0 0 0 0 0 1 0 1 1 1 1 0 1 0 1 0 0 1 1 1 1 0 0 1 1 1 1 1 1 1 1 1 0 0 0 0 0; 0 1 1 0 1 1 0 0 0 1 1 1 0 1 0 1 1 1 0 0 0 1 0 0 0 0 0 1 1 0 0 1 1 1 0 1 0 0 1 0 1 1 1 0 0 0 1 1 1 0; 0 0 0 1 0 0 1 0 0 1 1 0 0 1 1 0 0 0 1 1 1 0 1 0 0 0 1 1 0 0 0 1 1 0 1 1 0 0 0 1 1 1 0 1 1 0 0 1 0 0; 0 0 1 0 0 1 0 1 0 0 1 1 1 0 0 1 1 0 0 0 1 1 0 0 1 0 1 1 1 0 0 0 0 1 1 1 1 0 0 0 0 1 0 1 0 1 1 0 0 1; 1 1 1 0 0 1 0 0 0 0 0 0 0 1 0 1 1 1 1 1 0 1 0 1 1 0 1 1 1 0 1 0 0 0 1 0 1 0 1 0 1 0 0 1 1 0 1 1 0 0; 0 0 1 0 1 0 0 1 0 0 0 1 1 0 1 1 1 0 1 1 1 1 0 1 1 1 0 1 0 0 1 0 1 1 0 1 0 1 0 1 1 0 0 0 0 1 0 1 1 0; 0 1 0 0 0 0 0 0 0 1 1 0 1 1 1 0 0 0 1 1 0 0 1 1 1 0 1 1 0 1 1 0 0 1 0 0 0 1 1 1 0 0 1 1 0 0 1 1 1 0; 0 0 0 1 0 1 1 1 1 1 1 0 0 0 0 0 1 0 0 1 0 0 0 0 1 1 1 1 0 0 0 1 1 0 0 0 0 0 0 0 1 1 1 1 0 0 1 1 0 1; 1 0 0 1 0 1 0 1 1 1 1 0 0 1 1 0 0 1 1 0 1 0 1 1 0 1 1 1 1 1 0 1 0 1 0 0 1 1 0 0 0 1 1 1 0 1 1 0 1 1; 0 1 0 0 0 0 0 1 0 1 0 1 0 1 1 1 0 1 1 1 0 1 0 1 0 1 1 0 1 0 1 1 0 1 0 0 1 0 1 0 1 0 0 0 1 1 1 1 1 0; 0 0 1 0 0 1 0 1 0 0 0 0 0 1 0 1 1 1 1 1 1 1 1 0 1 0 0 0 1 1 0 1 0 0 0 0 0 1 1 0 0 0 1 1 0 1 0 0 0 0; 0 1 1 1 0 1 0 1 1 1 1 1 1 1 1 1 0 1 0 0 1 0 0 0 0 0 1 1 0 1 1 0 0 1 0 1 0 0 1 1 0 0 1 1 0 0 0 0 0 1; 0 1 0 1 1 0 0 1 1 0 0 0 1 0 1 0 0 0 1 1 1 1 1 0 0 0 0 1 1 0 1 0 1 0 1 1 1 1 1 0 0 1 0 1 1 1 1 1 1 1; 1 1 1 0 1 1 0 0 0 1 1 1 0 0 1 1 0 1 0 1 1 1 1 0 1 0 0 1 0 1 0 0 0 1 1 0 1 1 0 0 0 1 0 1 1 1 1 0 1 0; 1 1 0 0 0 1 0 1 1 0 1 1 0 0 0 1 0 1 0 1 0 0 0 1 1 1 1 0 1 0 0 1 1 0 0 1 1 0 1 1 0 1 1 0 1 1 1 0 1 1; 0 1 1 0 0 1 1 0 0 0 1 1 0 1 0 0 0 1 0 0 0 1 1 1 0 1 1 1 1 1 1 1 1 0 0 0 0 0 0 1 1 0 1 0 1 1 0 1 0 1; 1 1 0 0 0 1 1 1 1 0 1 1 0 0 0 0 1 1 0 0 0 1 0 1 1 1 1 0 0 1 0 0 1 1 1 1 1 0 0 1 0 0 1 0 1 0 1 0 1 0; 0 1 0 0 0 0 1 1 1 0 0 1 1 1 1 1 0 1 1 1 1 1 1 0 0 1 0 0 1 0 1 0 0 0 1 1 0 0 1 0 1 1 0 1 1 1 0 1 0 1; 0 1 1 1 0 0 0 1 1 0 0 1 0 1 0 0 0 0 1 0 0 0 1 0 0 1 1 0 0 1 1 1 1 0 1 0 1 1 1 0 1 1 1 0 0 1 1 1 1 1; 1 1 0 1 1 1 1 1 0 1 1 0 0 0 0 0 1 0 0 1 0 0 0 0 1 0 0 1 1 1 1 0 0 1 1 0 1 0 1 0 0 1 0 1 0 1 0 1 0 0; 1 0 1 0 0 1 0 0 0 0 0 1 1 0 1 0 0 1 0 0 1 0 1 0 0 1 0 1 1 1 0 0 1 1 0 0 1 0 1 1 1 0 0 1 1 1 0 1 1 1; 1 1 1 1 1 0 0 1 0 0 0 1 0 1 1 1 1 0 1 0 1 0 0 0 1 0 1 0 0 0 1 0 0 0 0 0 1 1 1 1 1 0 0 0 0 1 0 0 1 0; 1 0 0 0 1 0 1 0 1 0 1 1 1 1 0 0 1 0 1 0 1 1 0 1 1 1 1 0 1 0 0 0 0 1 1 1 1 1 0 1 0 0 0 1 1 1 0 0 1 0; 0 1 0 1 0 0 0 0 1 0 1 0 0 0 0 1 1 0 0 1 1 0 1 1 0 1 1 1 0 0 1 0 1 1 0 0 1 0 0 1 0 0 0 1 0 0 0 0 1 0; 0 1 1 0 0 0 1 1 0 1 0 0 1 1 1 0 1 1 0 1 0 0 1 0 1 0 1 1 1 0 1 1 1 0 0 1 0 0 1 1 1 0 1 0 1 0 1 1 1 1; 1 1 1 0 1 0 0 1 1 1 1 1 1 1 1 0 1 0 1 0 1 1 1 1 1 0 1 1 1 1 1 0 0 1 0 1 1 1 0 1 0 1 0 0 0 1 1 1 1 1; 1 0 1 1 1 1 1 1 0 1 0 1 1 1 0 1 0 1 0 1 0 1 0 1 0 0 1 1 0 0 0 1 0 1 1 0 0 0 0 1 1 1 0 0 1 0 0 1 1 0; 1 1 1 1 1 1 0 1 1 1 1 0 0 1 0 1 0 0 0 0 0 0 0 1 0 1 0 0 0 1 0 1 0 0 1 1 1 1 0 1 0 1 0 1 1 0 1 0 0 0; 1 1 0 1 0 0 0 1 1 1 0 0 0 0 1 1 0 0 1 0 1 1 0 1 0 1 0 1 1 1 0 0 0 0 0 0 1 0 1 0 1 0 1 1 1 0 1 0 0 1; 1 1 1 1 1 0 0 0 1 0 1 1 0 0 0 1 1 0 1 1 1 1 0 1 0 0 1 1 0 0 0 0 1 0 1 0 1 1 1 0 1 0 1 1 0 1 0 0 1 1; 1 1 1 1 0 0 0 0 0 1 1 0 1 1 0 0 1 1 0 0 0 1 1 0 1 1 0 1 1 0 1 1 0 0 0 1 1 0 1 0 0 0 1 0 0 0 0 0 0 1; 1 0 1 0 0 1 0 0 1 1 0 0 1 0 1 1 1 0 1 1 0 0 0 1 0 1 1 0 0 0 0 1 1 0 1 0 0 1 1 1 1 0 1 0 0 0 1 1 0 0; 0 0 1 0 1 1 1 0 1 1 0 1 0 0 1 1 1 0 1 0 0 1 1 0 1 0 0 0 0 1 0 1 0 0 1 1 0 0 0 0 0 0 0 1 1 0 1 1 0 1]
 const p = fill(0.02,scenes)
 # The ObjVal should be -586.8199999999999 (MIP)
-
+# the PerfInfo lower bound now calculated is -604.5400000000001 which == zpi_c1()
 # Q: precise evaluate
 # Q_b: benders cut
 # Q_SB: s-benders cut
@@ -17,16 +17,16 @@ const p = fill(0.02,scenes)
 import MathOptInterface as MOI
 import Gurobi
 
-function is_int(x)
+function is_int(x)::Bool
     bv = abs.(x .- round.(x)) .<= 1e-6
     return sum(bv) == length(bv)
 end
 
-function terms_init(l)
+function terms_init(l)::Vector{MOI.ScalarAffineTerm{Float64}}
     return [MOI.ScalarAffineTerm(0.,MOI.VariableIndex(0)) for _ in 1:l]
 end
 
-function Q(xt,s_ind) # precisely evaluate Q_s(x) at x = xt (not necessary int points)
+function Q(xt,s_ind)::Float64 # precisely evaluate Q_s(x) at x = xt (not necessary int points)
     @assert -1e-6 <= minimum(xt) && maximum(xt) <= 1. + 1e-6 # validity of trial point
     o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
     MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
@@ -76,7 +76,7 @@ function Q(xt,s_ind) # precisely evaluate Q_s(x) at x = xt (not necessary int po
     return MOI.get(o,MOI.ObjectiveValue())
 end
 
-function Q_B(xt,s_ind) # From Q: 1, relaxing y ∈ Y; 2, output
+function Q_B(xt,s_ind)::NamedTuple # From Q: 1, relaxing y ∈ Y; 2, output
     @assert -1e-6 <= minimum(xt) && maximum(xt) <= 1. + 1e-6 # validity of trial point
     o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
     MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
@@ -129,7 +129,7 @@ function Q_B(xt,s_ind) # From Q: 1, relaxing y ∈ Y; 2, output
     return (s=slope,o=obj) # o is the RHS of (10), while s is the -λ in (10)
 end
 
-function Q_SB(xt,s_ind) # precisely evaluate Q_s(x) at x = xt (not necessary int points)
+function Q_SB(xt,s_ind)::NamedTuple # precisely evaluate Q_s(x) at x = xt (not necessary int points)
     slope = Q_B(xt,s_ind).s # check xt inside Q_B
     o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with trial point xt
     MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
@@ -184,7 +184,57 @@ function Q_SB(xt,s_ind) # precisely evaluate Q_s(x) at x = xt (not necessary int
     return (s=slope,o=obj)
 end
 
-function isnewtrial(p,x)
+function Q_star(pai,pai0,s_ind)::Float64 # MIP problem (12)
+    @assert pai0 >= -1.0e-6
+    o = Gurobi.Optimizer(GRB_ENV) # the s_ind subproblem with input(pai,pai0)
+    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    objterms = terms_init(m + m+n*m) # 2 stages
+    x = similar(pai,MOI.VariableIndex) # 1st-stage decision vector
+    for j in 1:m
+        x[j] = MOI.add_variable(o) # copy variable named x
+        MOI.add_constraint(o,x[j],MOI.ZeroOne()) # 1st-stage constraint (Int included)
+        objterms[0+j] = MOI.ScalarAffineTerm(pai[j],x[j])
+    end
+    y0 = similar(q0,MOI.VariableIndex)
+    for j in 1:m
+        y0[j] = MOI.add_variable(o)
+        MOI.add_constraint(o,y0[j],MOI.GreaterThan(0.))
+        objterms[m+j] = MOI.ScalarAffineTerm(pai0 * q0[j],y0[j])
+    end
+    y = similar(d,MOI.VariableIndex)
+    for i in 1:n # row 1:70
+        terms = terms_init(m) # constr 2
+        for j in 1:m # col 1:30
+            y[i,j] = MOI.add_variable(o)
+            MOI.add_constraint(o,y[i,j],MOI.ZeroOne())
+            objterms[2m + m*(i-1)+j] = MOI.ScalarAffineTerm(pai0 * -d[i,j],y[i,j]) # negative sign! 
+            terms[j] = MOI.ScalarAffineTerm(1.,y[i,j]) # constr 2
+        end 
+        f = MOI.ScalarAffineFunction(terms, 0.) # constr 2
+        MOI.add_constraint(o,f,MOI.EqualTo(h[i,s_ind])) # constr 2
+    end
+    for j in 1:m
+        terms = terms_init(n+2)
+        for i in 1:n
+            terms[i] = MOI.ScalarAffineTerm(d[i,j],y[i,j])
+        end
+        terms[n+1] = MOI.ScalarAffineTerm(-1.,y0[j])
+        terms[n+2] = MOI.ScalarAffineTerm(-u,x[j])
+        f = MOI.ScalarAffineFunction(terms, 0.)
+        MOI.add_constraint(o,f,MOI.LessThan(0.)) # constr 1
+    end
+    # obj function and SENSE of the s_ind subproblem
+    f = MOI.ScalarAffineFunction(objterms, 0.)
+    type_matters = MOI.ObjectiveFunction{typeof(f)}()
+    MOI.set(o,type_matters,f)
+    MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+    # optimize!
+    MOI.optimize!(o)
+    @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
+    return MOI.get(o,MOI.ObjectiveValue())
+end
+
+function isnewtrial(p,x)::Bool
     for c in eachcol(p)
         tmp = maximum(abs.(c - x))
         if tmp < 1e-5
@@ -199,12 +249,103 @@ function isnewtrial(p,x)
     return true
 end
 
+function perf_info_value_scene(s_ind)::Float64
+    o = Gurobi.Optimizer(GRB_ENV)
+    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    objterms = terms_init(m + m+n*m) # stage 1 and stage 2
+    x = similar(c,MOI.VariableIndex)
+    for j in 1:m
+        x[j] = MOI.add_variable(o)
+        MOI.add_constraint(o, x[j], MOI.ZeroOne())
+        objterms[0+j] = MOI.ScalarAffineTerm(c[j],x[j])
+    end
+    y0 = similar(q0,MOI.VariableIndex)
+    for j in 1:m
+        y0[j] = MOI.add_variable(o)
+        MOI.add_constraint(o,y0[j],MOI.GreaterThan(0.))
+        objterms[m+j] = MOI.ScalarAffineTerm(q0[j],y0[j])
+    end
+    y = similar(d,MOI.VariableIndex)
+    for i in 1:n # row 1:70
+        terms = terms_init(m) # constr 2
+        for j in 1:m # col 1:30
+            y[i,j] = MOI.add_variable(o)
+            MOI.add_constraint(o,y[i,j],MOI.ZeroOne())
+            objterms[2m+m*(i-1)+j] = MOI.ScalarAffineTerm(-d[i,j],y[i,j]) # negative sign! 
+            terms[j] = MOI.ScalarAffineTerm(1.,y[i,j]) # constr 2
+        end 
+        f = MOI.ScalarAffineFunction(terms, 0.) # constr 2
+        MOI.add_constraint(o,f,MOI.EqualTo(h[i,s_ind])) # constr 2
+    end
+    for j in 1:m
+        terms = terms_init(n+2)
+        for i in 1:n
+            terms[i] = MOI.ScalarAffineTerm(d[i,j],y[i,j])
+        end
+        terms[n+1] = MOI.ScalarAffineTerm(-1.,y0[j])
+        terms[n+2] = MOI.ScalarAffineTerm(-u,x[j]) # use of copy variable
+        f = MOI.ScalarAffineFunction(terms, 0.)
+        MOI.add_constraint(o,f,MOI.LessThan(0.)) # constr 1
+    end
+    # obj function and SENSE of the s_ind subproblem
+    f = MOI.ScalarAffineFunction(objterms, 0.)
+    type_matters = MOI.ObjectiveFunction{typeof(f)}()
+    MOI.set(o,type_matters,f)
+    MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+    # optimize!
+    MOI.optimize!(o)
+    @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
+    return MOI.get(o,MOI.ObjectiveValue())
+end
+
+function perf_info_value(p)::Float64
+    @assert sum(p) == 1. # the probability vector
+    return p' * perf_info_value_scene.(eachindex(p))
+end
+
+function zpi_c1()::Float64 # no other constraints ??? astonishing!
+    o = Gurobi.Optimizer(GRB_ENV)
+    MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
+    objterms = terms_init(m+scenes)
+    x = similar(c,MOI.VariableIndex)
+    for j in 1:m
+        x[j] = MOI.add_variable(o)
+        # MOI.add_constraint(o, x[j], MOI.GreaterThan(0.))
+        # MOI.add_constraint(o, x[j], MOI.LessThan(1.))
+        objterms[0+j] = MOI.ScalarAffineTerm(c[j],x[j])
+    end
+    theta = similar(p,MOI.VariableIndex);
+    for s_ind in 1:scenes
+        theta[s_ind] = MOI.add_variable(o)
+        objterms[m+s_ind] = MOI.ScalarAffineTerm(p[s_ind],theta[s_ind])
+    end
+    # add c1 cut
+    for s_ind in 1:scenes
+        terms = terms_init(m+1)
+        for j in 1:m
+            terms[j] = MOI.ScalarAffineTerm(c[j],x[j])
+        end
+        terms[m+1] = MOI.ScalarAffineTerm(1.,theta[s_ind])
+        f = MOI.ScalarAffineFunction(terms, 0.)
+        MOI.add_constraint(o,f,MOI.GreaterThan(Q_star(c,1.,s_ind))) # constr 1
+    end
+    # obj function and SENSE of the s_ind subproblem
+    f = MOI.ScalarAffineFunction(objterms, 0.)
+    type_matters = MOI.ObjectiveFunction{typeof(f)}()
+    MOI.set(o,type_matters,f)
+    MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+    # optimize!
+    MOI.optimize!(o)
+    @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
+    return MOI.get(o,MOI.ObjectiveValue())
+end
+
 const GRB_ENV = Gurobi.Env()
+
 o = Gurobi.Optimizer(GRB_ENV); # master
 MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
 objterms = terms_init(m+scenes); # without penalization
 x = similar(c,MOI.VariableIndex);
-
 for j in 1:m
     x[j] = MOI.add_variable(o)
     MOI.set(o,MOI.VariableName(),x[j],"x[$j]")
@@ -230,8 +371,13 @@ xt = zeros(m); # initial trial point (Zero Trial Point)
 tpool = reshape(xt,(m,1)); # trial_point_pool initialization, adding use tpool = [tpool new_x_trial]
 cpool = [zeros(m+1,1) for _ in 1:scenes]; # cut_pool depends on each scene
 obj_2nd = similar(p); # store the objective value of the 2nd stage, with scenes
+
 for s_ind in 1:scenes
     obj_2nd[s_ind] = Q(xt,s_ind)
+end
+ub = c' * xt + p' * obj_2nd # ub initialization = 14325.660000000002
+
+for s_ind in 1:scenes
     ret = Q_B(xt,s_ind)
     terms = [MOI.ScalarAffineTerm.(-ret.s,x); MOI.ScalarAffineTerm(1.,theta[s_ind])]
     f = MOI.ScalarAffineFunction(terms, 0.)
@@ -239,7 +385,7 @@ for s_ind in 1:scenes
     cpool[s_ind] .= [-ret.s; cnst] # (initialization) record the cut coefficient, one pool per scene
     MOI.add_constraint(o,f,MOI.GreaterThan(cnst)) # The initial B cut to avoid Unboundness
 end
-ub = c' * xt + p' * obj_2nd # ub initialization = 14325.660000000002
+
 
 MOI.optimize!(o) # solve master problem
 @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
