@@ -16,16 +16,64 @@ const p = fill(0.02,scenes)
 #
 import MathOptInterface as MOI
 import Gurobi
+import LinearAlgebra
+
+# function vv2m(vv) # vector of vector to matrix
+#     m = zeros(length(vv[1]),length(vv))
+#     for i in eachindex(vv)
+#         m[:,i] .= vv[i]
+#     end
+#     return m
+# end
+
+struct Eshat
+    z::Vector{Vector{Float64}}
+    theta_z::Vector{Float64}
+end
+
+
+function is_2vec_close(v1,v2)
+    return LinearAlgebra.norm(v1-v2,Inf) <= 1e-6
+end
+
+function is_int(v::Union{Vector{Float64},Float64})
+    return LinearAlgebra.norm(v-round.(v),Inf) <= 1e-6
+end
+
+function bin_vec_to_1_places(v::Vector{Real})::Vector{Int}
+    return findall(x -> x > .5,v)
+end
+
+function distill(z::Vector{Vector{Float64}},t::Vector{Float64})
+    z_vec,t_vec = deepcopy(z),deepcopy(t)
+    n_vec = Vector{Float64}[]
+    nt_vec = Float64[]
+    rep_vec = Vector{Float64}[]
+    rept_vec = Float64[]
+    while !isempty(t_vec)
+        rep = 0
+        for i in 2:length(t_vec)
+            if is_2vec_close(z_vec[1],z_vec[i])
+                rep = i
+                break
+            end
+        end
+        if rep == 0
+            push!(n_vec,popfirst!(z_vec))
+            push!(nt_vec,popfirst!(t_vec))
+        else # currently z_vec[1] == z_vec[rep]
+            delInd = t_vec[1] < t_vec[rep] ? rep : 1
+            push!(rep_vec,popat!(z_vec,delInd))
+            push!(rept_vec,popat!(t_vec,delInd))
+        end
+    end
+    return n_vec,nt_vec #,rep_vec,rept_vec
+end
 
 function silent_new_optimizer()
     o = Gurobi.Optimizer(GRB_ENV); # master
     MOI.set(o,MOI.RawOptimizerAttribute("OutputFlag"),0)
     return o
-end
-
-function is_int(x)::Bool
-    bv = abs.(x .- round.(x)) .<= 1e-6
-    return sum(bv) == length(bv)
 end
 
 function terms_init(l)::Vector{MOI.ScalarAffineTerm{Float64}}
@@ -129,15 +177,15 @@ function Q_B(xt,s_ind)::NamedTuple # From Q: 1, relaxing y ∈ Y; 2, output
     MOI.optimize!(o)
     @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
     obj = MOI.get(o,MOI.ObjectiveValue())
-    slope = MOI.get.(o, MOI.ConstraintDual(), cpc) # slope is given be the solver!
-    return (s=slope,o=obj) # o is the RHS of (10), while s is the -λ in (10)
+    slope = MOI.get.(o, MOI.ConstraintDual(), cpc) # slope is given by the solver!
+    lambda = -slope # lambda is in section 2.3.BDD p2335
+    return (l = lambda,o=obj) # o is the RHS of (10), while s is the -λ in (10)
 end
 
-function Q_SB(xt,s_ind)::NamedTuple # precisely evaluate Q_s(x) at x = xt (not necessary int points)
-    slope = Q_B(xt,s_ind).s # check xt inside Q_B
+function Q_SB(lambda,s_ind)::NamedTuple # precisely evaluate Q_s(x) at x = xt (not necessary int points)
     o = silent_new_optimizer() # the s_ind subproblem with trial point xt
     objterms = terms_init(m+n*m+m) # penalty has m terms
-    x = similar(xt,MOI.VariableIndex) # copy vector of xt
+    x = similar(c,MOI.VariableIndex) # copy vector of xt
     for j in 1:m
         x[j] = MOI.add_variable(o) # copy variable named x
         MOI.add_constraint(o,x[j],MOI.ZeroOne()) # 1st-stage constraint add to copy vector, after relaxing copy constr
@@ -172,10 +220,10 @@ function Q_SB(xt,s_ind)::NamedTuple # precisely evaluate Q_s(x) at x = xt (not n
     end
     # penalty in Obj
     for j in 1:m
-        objterms[m+n*m+j] = MOI.ScalarAffineTerm(-slope[j],x[j])
+        objterms[m+n*m+j] = MOI.ScalarAffineTerm(lambda[j],x[j])
     end
     # obj function and SENSE of the s_ind subproblem
-    f = MOI.ScalarAffineFunction(objterms, slope' * xt)
+    f = MOI.ScalarAffineFunction(objterms,0.)
     type_matters = MOI.ObjectiveFunction{typeof(f)}()
     MOI.set(o,type_matters,f)
     MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
@@ -183,8 +231,8 @@ function Q_SB(xt,s_ind)::NamedTuple # precisely evaluate Q_s(x) at x = xt (not n
     MOI.optimize!(o)
     @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
     xval = MOI.get.(o, MOI.VariablePrimal(), x)
-    obj = MOI.get(o,MOI.ObjectiveValue()) + slope' * (xval - xt) # obj is True 2nd Obj (without penalty)
-    return (s=slope,o=obj)
+    obj = MOI.get(o,MOI.ObjectiveValue()) # the equation above (10)
+    return (l=lambda,o=obj)
 end
 
 function Q_star(pai,pai0,s_ind)::Float64 # MIP problem (12)
@@ -230,10 +278,19 @@ function Q_star(pai,pai0,s_ind)::Float64 # MIP problem (12)
     type_matters = MOI.ObjectiveFunction{typeof(f)}()
     MOI.set(o,type_matters,f)
     MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
-    # optimize!
     MOI.optimize!(o)
     @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
     return MOI.get(o,MOI.ObjectiveValue())
+end
+
+function Q_star_hat(pai,pai0,s_ind,eshat)::Tuple{Float64, Int64} # take finite minimum (18)
+    z_vec, value2_vec = eshat.z, pai0 * eshat.theta_z
+    value1_vec = similar(value2_vec)
+    for i in eachindex(value2_vec)
+        value1_vec[i] = pai' * z_vec[i]
+    end
+    value_vec = value1_vec .+ value2_vec
+    return findmin(value_vec)
 end
 
 function isnewtrial(p,x)::Bool
@@ -251,13 +308,13 @@ function isnewtrial(p,x)::Bool
     return true
 end
 
-function perf_info_value_scene(s_ind)::Float64
+function perf_info_per_scene(s_ind)::NamedTuple # the problem following p_s in (14.9)
     o = silent_new_optimizer()
     objterms = terms_init(m + m+n*m) # stage 1 and stage 2
     x = similar(c,MOI.VariableIndex)
     for j in 1:m
         x[j] = MOI.add_variable(o)
-        MOI.add_constraint(o, x[j], MOI.ZeroOne())
+        MOI.add_constraint(o, x[j], MOI.ZeroOne()) # x ∈ X
         objterms[0+j] = MOI.ScalarAffineTerm(c[j],x[j])
     end
     y0 = similar(q0,MOI.VariableIndex)
@@ -271,7 +328,7 @@ function perf_info_value_scene(s_ind)::Float64
         terms = terms_init(m) # constr 2
         for j in 1:m # col 1:30
             y[i,j] = MOI.add_variable(o)
-            MOI.add_constraint(o,y[i,j],MOI.ZeroOne())
+            MOI.add_constraint(o,y[i,j],MOI.ZeroOne()) # y ∈ Y
             objterms[2m+m*(i-1)+j] = MOI.ScalarAffineTerm(-d[i,j],y[i,j]) # negative sign! 
             terms[j] = MOI.ScalarAffineTerm(1.,y[i,j]) # constr 2
         end 
@@ -296,15 +353,23 @@ function perf_info_value_scene(s_ind)::Float64
     # optimize!
     MOI.optimize!(o)
     @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
-    return MOI.get(o,MOI.ObjectiveValue())
+    objval = MOI.get(o,MOI.ObjectiveValue())
+    xval = MOI.get.(o,MOI.VariablePrimal(),x)
+    objval_2nd_stage = objval - c' * xval
+    return (o = objval, z = xval, theta_z = objval_2nd_stage) # (z, theta_z) in (18)
 end
 
-function perf_info_value(p)::Float64
+function perf_info_initialization(p)::NamedTuple
     @assert sum(p) == 1. # the probability vector
-    return p' * perf_info_value_scene.(eachindex(p))
+    vector_of_tuples = perf_info_per_scene.(eachindex(p)) # much computations here
+    z_pi = p' * getfield.(vector_of_tuples,:o)
+    z_vec = getfield.(vector_of_tuples,:z)
+    theta_z_vec = getfield.(vector_of_tuples,:theta_z)
+    n_vec,nt_vec = distill(z_vec,theta_z_vec)
+    return (z_pi = z_pi, eshat = Eshat(n_vec,nt_vec))
 end
 
-function zpi_c1()::Float64 # no other constraints ??? astonishing!
+function zpi_c1()::Float64
     o = silent_new_optimizer()
     objterms = terms_init(m+scenes)
     x = similar(c,MOI.VariableIndex)
@@ -342,6 +407,11 @@ end
 
 
 const GRB_ENV = Gurobi.Env()
+z_pi, eshat = perf_info_initialization(p)
+
+
+
+
 o = silent_new_optimizer()
 objterms = terms_init(m+scenes); # without penalization
 x = similar(c,MOI.VariableIndex);
@@ -379,10 +449,10 @@ ub = c' * xt + p' * obj_2nd # ub initialization = 14325.660000000002
 
 for s_ind in 1:scenes
     ret = Q_B(xt,s_ind)
-    terms = [MOI.ScalarAffineTerm.(-ret.s,x); MOI.ScalarAffineTerm(1.,theta[s_ind])]
+    terms = [MOI.ScalarAffineTerm.(ret.l,x); MOI.ScalarAffineTerm(1.,theta[s_ind])]
     f = MOI.ScalarAffineFunction(terms, 0.)
-    cnst = ret.o - ret.s' * xt
-    cpool[s_ind] .= [-ret.s; cnst] # (initialization) record the cut coefficient, one pool per scene
+    cnst = ret.o + ret.l' * xt
+    cpool[s_ind] .= [ret.l; cnst] # (initialization) record the cut coefficient, one pool per scene
     MOI.add_constraint(o,f,MOI.GreaterThan(cnst)) # The initial B cut to avoid Unboundness
 end
 
@@ -410,12 +480,12 @@ for trialPointNumber in 1:30000
         ub = newub < ub ? newub : ub
     end
     for s_ind in 1:scenes
-        ret = trial_is_int ? Q_B(xt,s_ind) : Q_SB(xt,s_ind)
-        cnst = ret.o - ret.s' * xt # o is the RHS at (10)
-        if -ret.s' * xt + thetat[s_ind] < cnst - 1e-6 # violation
-            terms = [MOI.ScalarAffineTerm.(-ret.s,x); MOI.ScalarAffineTerm(1.,theta[s_ind])] # λ = -slope
+        ret = Q_SB(Q_B(xt,s_ind).l,s_ind) # trial_is_int ? Q_B(xt,s_ind) : Q_SB(Q_B(xt,s_ind).l,s_ind)
+        cnst = ret.o # o is the RHS at (10)
+        if ret.l' * xt + thetat[s_ind] < cnst - 1e-6 # violation
+            terms = [MOI.ScalarAffineTerm.(ret.l,x); MOI.ScalarAffineTerm(1.,theta[s_ind])] # λ = -slope
             f = MOI.ScalarAffineFunction(terms, 0.)
-            newcol = [-ret.s; cnst]
+            newcol = [ret.l; cnst]
             cpool[s_ind] = [cpool[s_ind] newcol] # record the cut coefficient, one pool per scene
             MOI.add_constraint(o,f,MOI.GreaterThan(cnst)) # The initial B cut to avoid Unboundness
         else
@@ -425,7 +495,7 @@ for trialPointNumber in 1:30000
             println("This is xt")
             println(xt)
             println("Theta[ind] is $(thetat[s_ind])")
-            println("lhs $(-ret.s' * xt + thetat[s_ind]) >= rhs $(cnst)")
+            println("lhs $(ret.l' * xt + thetat[s_ind]) >= rhs $(cnst)")
             @warn ("No Violation Occurs!")
             return
         end
