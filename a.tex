@@ -1,0 +1,67 @@
+\documentclass{article}
+\usepackage[a4paper, total={8in, 11in}]{geometry}
+% \usepackage{graphicx} % Required for inserting images
+\usepackage{multicol}
+\usepackage{amssymb}
+\usepackage{blindtext}
+\usepackage{hyperref}
+
+\title{cleanblanket}
+% \author{3468274604 }
+% \date{October 2023}
+
+\begin{document}
+\begin{multicols}{2}
+precise model:
+\begin{equation}
+    z_{IP} = \min_{x,\theta_s} \{ c^\top x + \sum_{s \in S} p_s \theta_s : (x,\theta_s) \in E^s, s \in S \}
+\end{equation}
+where $E^s$ is the set of scene-wise-valid (NOT SIP sense!) extended trial points,
+\begin{equation}\label{setEs}
+    E^s = \{ (x,\theta_s) \in X \times \mathbb{R} : Ax \ge b, \theta_s \ge Q_s(x) \}, \forall s \in S
+\end{equation}
+constant term in (13) cut, is determined by an MIP
+\begin{equation}\label{preciseQstar}
+    Q^{\ast}_s(\pi,\pi_0) = \min_{x,\theta_s} \{ \pi^\top x + \pi_0 \theta_s : (x,\theta_s) \in E^s \}, \forall s \in S
+\end{equation}
+\begin{equation}
+    Q^{\ast}_s(\pi,\pi_0) = \min_{x} \{ \pi^\top x + \pi_0 Q_s(x) : Ax \ge b, x \in X \}, \forall s \in S
+\end{equation}
+This form is suitable for programming:
+\begin{equation}
+    Q^{\ast}_s(\pi,\pi_0) = \min_{x,y^s} \{ \pi^\top x + \pi_0 (q^s)^\top y^s : (x,y^s) \in K^s \}, \forall s \in S
+\end{equation}
+where, the precise scene-wise value function $Q_s(x)$, is determined by an MIP,
+\begin{equation}\label{valuefunction}
+    Q_s(x) = \min_{y^s} \{ (q^s)^\top y^s : W^s y^s \ge h^s - T^s x , y^s \in Y \}, \forall s \in S
+\end{equation}
+define a scene-wise double-int restriction set named $K^s$,
+\begin{equation}
+    K^s = \{ (x,y^s) \in X \times Y, W^s y^s \ge h^s - T^s x, Ax \ge b \}, \forall s \in S
+\end{equation}
+From (\ref{preciseQstar}), we can derive a less-restricted, thus under-approximated version,
+\begin{equation}
+    \hat Q^{\ast}_s(\pi,\pi_0) = \min_{x,\theta_s} \{ \pi^\top x + \pi_0 \theta_s : (x,\theta_s) \in \hat E^s \}, \forall s \in S
+\end{equation}
+where $\hat E^s$ is a finite subset of $E^s$ (\ref{setEs}).
+
+We need to initialize $\hat E^s, \forall s \in S$ such that there is one point in each scene.
+We could pick (how to?) a valid $x$, and evaluate $Q_s(x)$, make $\theta_s = Q_s(x)$ to generate a "tight" valid point.
+There is a handy and one-shot method, during the process of evaluating $z_{PI} = \sum_{s \in S} p_s z_{PI}^s$,
+\begin{equation}
+    z_{PI}^s = \min_{x,y^s} \{ c^\top x + (q^s)^\top y^s : (x,y^s) \in K^s \}, \forall s \in S 
+\end{equation}
+Then the initial extended trial point in $\hat E^s$ is ($x^\ast$,$(q^s)^\top {y^s}^\ast$). Firstly, $x^\ast$ is valid.
+Given $x=x^\ast$, $Q_s(x) \le (q^s)^\top {y^s}^\ast$ due to the validity of ${y^s}^\ast$ and the def of $Q_s(x)$ (\ref{valuefunction}).
+Thus, although this initial trial point is not "tight", it is valid (i.e., $\in E^s$), and generated fast.
+
+
+\blindtext
+\blindtext
+\blindtext
+\blindtext
+\blindtext
+\blindtext
+
+\end{multicols}
+\end{document}
