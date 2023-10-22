@@ -7,6 +7,8 @@ const q0 = fill(12.,sites) # penalty coefficient
 const u = 15. # capacity of a established server
 const p = fill(0.2,scenes)
 
+# println("Max_Vio: $(MOI.get(o, Gurobi.ModelAttribute("MaxVio")))")
+
 # 2023/10/20
 # 59.6
 # The perfect information LB z_PI = 35.800000000000004
@@ -63,22 +65,19 @@ function empty_ge_cut_vector()
     return MOI.ConstraintIndex{MOI.ScalarAffineFunction{Float64}, MOI.GreaterThan{Float64}}[]
 end
 
-function is_2vec_close(v1,v2,tol=1e-6)
+function is_2vec_close(v1,v2,tol=TOL_VECTOR)
     return LinearAlgebra.norm(v1-v2,Inf) <= tol
 end
-
 
 function perf_info_per_scene(s)
     return Q_star(s,c,1.)
 end
 
-
 function hatE_initialization()::Vector{HatEs}
     tmp,hatE = similar(p),similar(p,HatEs)
-    for s in eachindex(p)
+    for s in 1:scenes
         ret = perf_info_per_scene(s)
-        tmp[s], x, theta = ret.o, ret.x, ret.qsty
-        hatE[s] = HatEs([x],[theta])
+        hatE[s], tmp[s]  = HatEs([ret.x],[ret.qsty]), ret.o
     end
     perf_info_bound = p' * tmp
     @info "The perfect information LB z_PI = $perf_info_bound"
@@ -104,7 +103,7 @@ function hatQ_initialization()::Vector{HatQs}
     end
     hatQ = similar(p,HatQs)
     for s in 1:scenes
-        thetat_s_tmp = Q(s,xt) - 1
+        thetat_s_tmp = Q(s,xt) - 1. # An artificial trial value, out of the epigraph of value function
         t = algorithm1(s,xt,thetat_s_tmp) # use Lagrangian initial cuts
         hatQ[s] = HatQs( ([t[1]],[t[2]],[t[3]]) ) # use a tuple argument to instantiate a HatQs
     end
@@ -175,6 +174,10 @@ function Q(s,xt)::Float64 # s only affects rand variable at RHS of constr 2 in t
     # optimize!
     MOI.optimize!(o)
     @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
+    maxvio::Float64 = MOI.get(o, Gurobi.ModelAttribute("MaxVio"))
+    if maxvio > 0.1 * TOL_SCALAR
+        @warn "Gurobi optimizer has an numerical error $(maxvio)"
+    end
     return MOI.get(o,MOI.ObjectiveValue())
 end
 
@@ -198,7 +201,6 @@ function Q_star(s,pai,pai0)
     MOI.add_constraint.(o,x,MOI.LessThan(1.))
     # x ∈ X
     MOI.add_constraint.(o,x,MOI.Integer())
-
 
     y0 = similar(q0,MOI.VariableIndex)
     for j in 1:sites
@@ -245,11 +247,15 @@ function Q_star(s,pai,pai0)
         show(pai)
         @error "In Q_star(s = $s,pai,pai0 = $pai0), TerminationStatus = $status"
     else
+        maxvio::Float64 = MOI.get(o, Gurobi.ModelAttribute("MaxVio"))
+        if maxvio > 0.1 * TOL_SCALAR
+            @warn "Gurobi optimizer has an numerical error $(maxvio)"
+        end
         obj = MOI.get(o,MOI.ObjectiveValue())
         xt = MOI.get.(o,MOI.VariablePrimal(),x)
         y0t = MOI.get.(o,MOI.VariablePrimal(),y0)
         yt = MOI.get.(o,MOI.VariablePrimal(),y)
-        qsty = q0' * y0t - sum(q .* yt)
+        qsty = q0' * y0t - sum(q .* yt) # qsty, given xt, is typically used to enlarge the set Ê^s; qsty is valid, and fast, although may not be as precise as Q(s,xt)
     end
     return (o=obj, x=xt, y0=y0t, y=yt, qsty = qsty)
 end
@@ -341,7 +347,7 @@ function algorithm1(s,hat_x,hat_θ_s) # there is also a global input hatE
     lb = -Inf # check this value is updated at least once before leaving algorithm 1 
     solution = [Inf for _ in 1:sites+1] # (π*,π0*)
     old_pai = [Inf for _ in 1:sites]
-    old_precise_value = Inf
+    incumbent_RHS_13 = Inf
     # ------------------------ Backup Region ------------------------ 
     while true
         # line 3: solve current cutting plane model, get an upper bound (MAX problem), get a new trial solution (π,π0)
@@ -351,6 +357,10 @@ function algorithm1(s,hat_x,hat_θ_s) # there is also a global input hatE
             show((s,hat_x,hat_θ_s))
             @error "In Algorithm 1, line 3, status != MOI.OPTIMAL"
         else
+            maxvio::Float64 = MOI.get(o, Gurobi.ModelAttribute("MaxVio"))
+            if maxvio > 0.1 * TOL_SCALAR
+                @warn "Gurobi optimizer has an numerical error $(maxvio)"
+            end
             ub,pait,pai0t = MOI.get(o,MOI.ObjectiveValue()),MOI.get.(o,MOI.VariablePrimal(),pai),MOI.get(o,MOI.VariablePrimal(),pai0)
         end
         # line 4, part 1: check the quality of the trial solution (π,π0) derived in line 3, and evaluate the true Q_star(π,π0), returns the true value (later for lb), slope
@@ -372,7 +382,7 @@ function algorithm1(s,hat_x,hat_θ_s) # there is also a global input hatE
         curr_len = length(hatE[s].theta) # to ensures a static iteration
         for i in 1:curr_len
             if is_2vec_close(x,hatE[s].x[i])
-                if theta < hatE[s].theta[i] - 1e-10 # this current point is strictly better
+                if theta <= hatE[s].theta[i] - TOL_SCALAR # this current point is strictly better
                     # replace the old cut with the new, and record constrIndex in phi_cuts at the old place
                     MOI.delete(o,phi_cuts[i])
                     terms = [MOI.ScalarAffineTerm.(x, pai); MOI.ScalarAffineTerm(theta, pai0); MOI.ScalarAffineTerm(-1., phi)]
@@ -380,7 +390,7 @@ function algorithm1(s,hat_x,hat_θ_s) # there is also a global input hatE
                     # in-(old)place update hatE
                     hatE[s].theta[i] = theta
                     hatE[s].x[i] .= x
-                elseif theta > hatE[s].theta[i] + 1e-10
+                elseif theta >= hatE[s].theta[i] + TOL_SCALAR
                     @warn "The new generated cut reproduce an old same slope, and is an inferior one!"
                 end
                 slope_is_new = false
@@ -395,15 +405,14 @@ function algorithm1(s,hat_x,hat_θ_s) # there is also a global input hatE
             # 1, add this constraint to optimizer, 2, register it in vector phi_cuts
             push!(phi_cuts,MOI.add_constraint(o, MOI.ScalarAffineFunction(terms, 0.), MOI.GreaterThan(0.)))
         end
-
         # line 5
         newlb = precise_value - hat_x' * pait - hat_θ_s' * pai0t
         if newlb > lb # Must run into this if for at least once before leaving Algorithm 1
-            lb, old_precise_value = newlb, precise_value
+            lb, incumbent_RHS_13 = newlb, precise_value
             solution .= [pait; pai0t]
         end
         # println("lb = $lb < $ub = ub")
-        if is_2vec_close(old_pai,pait,1e-10)
+        if is_2vec_close(old_pai,pait)
             @warn "leave algorithm1 due to π stalling."
             break
         else
@@ -421,7 +430,7 @@ function algorithm1(s,hat_x,hat_θ_s) # there is also a global input hatE
     if lb == -Inf
         @error "lb should be updated at least once in Algorithm 1!"
     end
-    return solution[1:end-1], solution[end], old_precise_value # used to construct "(1) x + (2) θs ≥ (3)" the Lag cut (13)
+    return solution[1:end-1], solution[end], incumbent_RHS_13 # used to construct "(1) x + (2) θs ≥ (3)" the Lag cut (13)
 end
 
 function master()
@@ -471,35 +480,39 @@ function master()
         if status != MOI.OPTIMAL
             @error "In master, TerminationStatus = $status"
         else
+            maxvio::Float64 = MOI.get(o, Gurobi.ModelAttribute("MaxVio"))
+            if maxvio > 0.1 * TOL_SCALAR
+                @warn "Gurobi optimizer has an numerical error $(maxvio)"
+            end
             lb = MOI.get(o,MOI.ObjectiveValue())
-            @info "In master, lb = $lb"
+            @info "In master, (incumbent lower bound for z_IP) lb = $lb"
             xt = MOI.get.(o,MOI.VariablePrimal(),x)
             # to avoid gurobi error, do the following Ax ≥ b rectification
             any(xt .< 0.) && (xt[xt .< 0.] .= 0.)
             any(xt .> 1.) && (xt[xt .> 1.] .= 1.)
-            thetat = MOI.get.(o,MOI.VariablePrimal(),theta)
+            thetat = MOI.get.(o,MOI.VariablePrimal(),theta) # should be a violated trial value before converging
         end
         new_cut_gened = false
         for s in 1:scenes
-            pai,pai0,cnst_L = algorithm1(s,xt,thetat[s])
+            pai,pai0,cnst_L = algorithm1(s,xt,thetat[s]) # Get the θ[s] - x cut coefficients
             if pai0 < 0.
-                @error "I think this is impossible!"
+                @error "In master, main loop, I think this is impossible!"
             elseif pai0 == 0.
                 # @warn "At master_cut_generating: scene = $s, Going to generate a feasibility cut pai0 == 0.0"
             end
-            if pai' * xt + pai0 * thetat[s] <= cnst_L - 1e-6 # extended trial (xt, thetat[s]) violates the L-cut generated
+            if pai' * xt + pai0 * thetat[s] <= cnst_L - TOL_SCALAR # extended trial (xt, thetat[s]) violates the L-cut generated
                 slope_is_new = true
                 curr_len = length(hatQ[s].cnst_L) # to ensures a static iteration
                 for i in 1:curr_len
                     if is_2vec_close( [pai; pai0], [hatQ[s].pai[i]; hatQ[s].pai0[i]] )
-                        if cnst_L > hatQ[s].cnst_L[i] + 1e-10 # this current L-cut is strictly better
+                        if cnst_L >= hatQ[s].cnst_L[i] + TOL_SCALAR # this current L-cut is strictly better
                             # replace the old cut with the new, and record constrIndex in theta_cuts[s] at the old place
                             MOI.delete(o,theta_cuts[s][i])
                             terms = [MOI.ScalarAffineTerm.(pai, x); MOI.ScalarAffineTerm(pai0, theta[s])]
                             theta_cuts[s][i] = MOI.add_constraint(o, MOI.ScalarAffineFunction(terms, 0.), MOI.GreaterThan(cnst_L))
                             hatQ[s].pai[i] .= pai # in-(old)place update hatQ
                             hatQ[s].pai0[i], hatQ[s].cnst_L[i] = pai0, cnst_L
-                        elseif cnst_L < hatQ[s].cnst_L[i] - 1e-10
+                        elseif cnst_L <= hatQ[s].cnst_L[i] - TOL_SCALAR
                             @warn "In master: The new generated L-cut reproduce an old same slope, and is an inferior one!"
                         end
                         slope_is_new = false
@@ -532,7 +545,8 @@ function master()
 end
 
 const GRB_ENV = Gurobi.Env()
+const TOL_VECTOR = 1e-10
+const TOL_SCALAR = 1e-10
 hatE = hatE_initialization()
 hatQ = hatQ_initialization() # use Lagrangian cuts, thus must be after hatE's initialization
 master()
-
