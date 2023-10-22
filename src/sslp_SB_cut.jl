@@ -4,7 +4,6 @@
 include(joinpath(pwd(),"data","d_30_70_50.jl"))
 
 # 2023/10/22
-# TODO: use perf_info_initialization such that initial lower bound is PI_bound
 
 import LinearAlgebra
 import MathOptInterface as MOI
