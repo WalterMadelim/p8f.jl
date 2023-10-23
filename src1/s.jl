@@ -1,9 +1,10 @@
 
 
-include(joinpath(pwd(),"data","d_3_4_5.jl"))
-# include(joinpath(pwd(),"data","d_30_70_50.jl"))
+# include(joinpath(pwd(),"data","d_3_4_5.jl"))
+include(joinpath(pwd(),"data","d_30_70_50.jl"))
 
-# 2023/10/22
+# 2023/10/23
+# a stable version of Lagrangian cut generation, to achieve z_LC
 
 import LinearAlgebra
 import MathOptInterface as MOI
@@ -511,8 +512,7 @@ end
 
 test_sslp_parameters()
 const GRB_ENV = Gurobi.Env()
-train_data_dir = "data/sslp_train_data.jld2"
-
+train_data_dir = joinpath(pwd(),"data","sslp_train_data.jld2")
 # first train goes here
 lb_vector = Float64[]
 tol = Dict("Gurobi" => eps(), "Adaptive" => 1e-10) # a starting point
