@@ -1,4 +1,57 @@
-# solve a quadratic problem
+# solve a NL problem with SCIP
+                import MathOptInterface as MOI
+                import SCIP
+                
+                # variables
+                o = SCIP.Optimizer()
+                lambda = MOI.add_variable(o)
+                MOI.set(o,MOI.VariableName(),lambda,"λ")
+                d = MOI.add_variable(o)
+                MOI.set(o,MOI.VariableName(),d,"d")
+                O = MOI.add_variable(o)
+                MOI.set(o,MOI.VariableName(),O,"O")
+                EO = MOI.add_variable(o)
+                MOI.set(o,MOI.VariableName(),EO,"EXP(O)")
+                
+                # Nonlinear
+                const Nonlinear = MOI.Nonlinear
+                model = Nonlinear.Model()
+                # input = :(exp($O))
+                # expr = Nonlinear.add_expression(model,input)
+                ci = Nonlinear.add_constraint(model,:($EO - exp($O)),MOI.EqualTo(0.))
+                evaluator = Nonlinear.Evaluator(model,Nonlinear.ExprGraphOnly(),[EO,O])
+                block = MOI.NLPBlockData(evaluator)
+                MOI.set(o,MOI.NLPBlock(),block)
+                
+                # ordinary constraints, including Quadratic
+                terms = [MOI.ScalarAffineTerm(1.,d),MOI.ScalarAffineTerm(-1.,lambda)]
+                f = MOI.ScalarAffineFunction(terms, 0.)
+                s = MOI.EqualTo(1.)
+                MOI.add_constraint(o,f,s) # d = dist(λ,-1)
+                MOI.add_constraint(o,lambda,MOI.GreaterThan(2.))
+                qterms = [MOI.ScalarQuadraticTerm(1., d, d)]
+                # terms = MOI.ScalarAffineTerm{Float64}[]
+                terms = [MOI.ScalarAffineTerm(-1.,O)]
+                f = MOI.ScalarQuadraticFunction(qterms, terms, 0.)
+                MOI.add_constraint(o,f,MOI.LessThan(0.))
+                
+                # Objective function and sense
+                f = MOI.ScalarAffineFunction([MOI.ScalarAffineTerm(1.,EO)],0.)
+                type_matters = MOI.ObjectiveFunction{typeof(f)}()
+                MOI.set(o,type_matters,f)
+                MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+                
+                # optimize!
+                MOI.set(o,MOI.RawOptimizerAttribute("display/verblevel"),0)
+                # MOI.set(o,MOI.RawOptimizerAttribute("limits/gap"),1e-10)
+                MOI.optimize!(o)
+                MOI.get(o,MOI.VariablePrimal(),lambda)
+                tmp = MOI.get(o,MOI.VariablePrimal(),O)
+                println(MOI.get(o,MOI.VariablePrimal(),EO)," VS. ",exp(tmp)) # this value should be exp(O)
+
+
+
+# solve a quadratic problem with Gurobi
     o = Gurobi.Optimizer()
     lambda = MOI.add_variable(o)
     MOI.set(o,MOI.VariableName(),lambda,"λ")
