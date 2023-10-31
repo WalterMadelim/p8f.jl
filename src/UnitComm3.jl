@@ -66,8 +66,8 @@ ki = MODELING
 ki = TRIALVAL # shorthand for "key"
 
 
-ki != MODELING && (maxvio_cal = 0.) # the violation_accumulator
 if true # add variables & their bound/int constraint, or get the decision values & bound/int violations
+    ki != MODELING && (maxvio_cal = 0.) # the violation_accumulator
     for g in 1:Gs, t in 1:Ts
         if ki == MODELING
             x[g,t][ki] = MOI.add_variable(o)
@@ -304,6 +304,7 @@ if a_first_feasibility_solve && (ki == MODELING) # Solve the feasibility system 
     MOI.optimize!(o)
     @assert MOI.get(o,MOI.TerminationStatus()) == MOI.OPTIMAL
     maxvio_grb::Float64 = MOI.get(o, Gurobi.ModelAttribute("MaxVio"))
+    @info "feasible_solution with" maxvio_grb
 end
 
 if true # physical intermediate expressions are indented, others are component obj functions
@@ -338,8 +339,23 @@ status = MOI.get(o,MOI.TerminationStatus())
 if status != MOI.OPTIMAL
     @error "In UC problem, TerminationStatus = $status"
 else
-    maxvio_grb::Float64 = MOI.get(o, Gurobi.ModelAttribute("MaxVio"))
+    maxvio_grb::Float64 = MOI.get(o, Gurobi.ModelAttribute("MaxVio")) # 0.00031609245227626204, if do not adjust ENV_PWL_precision
 end
+
+if true # view results after the formal optimize! (but SHOULD update objterms first)
+    ki = 1 # manually adjust this to print relevant result
+    @info "" start_ups
+    @info "" shut_downs
+    power_output_figure = [x[g,t][ki] for g in 1:Gs, t in 1:Ts]
+    @info "" power_output_figure
+    @info "" demand_un_meet
+    @info "" demand_un_meet_24h
+    @info "" demand_surplus
+    @info "" demand_surplus_24h
+    @info "" emissions
+    @info "obj_function $obj_function = fuel_cost $fuel_cost  + not_meet_demand_cost $not_meet_demand_cost + over_meet_demand_cost $over_meet_demand_cost + emission_cost $emission_cost + start_up_cost $start_up_cost + shut_down_cost $shut_down_cost"
+end
+
 
 # ------------------------------------------
 # const Nonlinear = MOI.Nonlinear
