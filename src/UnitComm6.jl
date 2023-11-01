@@ -465,7 +465,7 @@ if status != MOI.OPTIMAL
 else
     @info "The formal Optimization OBJ: $(MOI.get(o,MOI.ObjectiveValue()))"
 end
-
+# set ki = 1 after optimize!
 
 
 
