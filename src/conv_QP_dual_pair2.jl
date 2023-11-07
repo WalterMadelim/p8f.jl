@@ -141,6 +141,10 @@ if true # we can fix the dual_x to be pri_x, which is optimal to the primal prob
 else # otherwise we might get a dual opt solution whose dual_x is not equal to pri_x
     dual_obj, dual_x, dual_y, dual_z = d24_3(c,hQ,A,b)
 end
+# important Observation: if we call the (fixed) dual_x `fx`, and we call the else dual_x `dx`
+# then we found:
+# vector `hQ * fx`` == `hQ * dx`
+# scalar `fx' * hQ * fx` == `dx' * hQ * dx`
 
 println("\ncheck pri_sensitivity and dual_y:")
 for (i,e) in zip(pri_sen,dual_y)
