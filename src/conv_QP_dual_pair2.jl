@@ -165,6 +165,6 @@ println("$i \t $e")
 println("\ncheck dual_obj")
 i,e = b' * dual_y - dual_x' * hQ * dual_x, dual_obj
 println("$i \t $e")
-println("\ncheck if strong duality hold")
+println("\ncheck if strong duality hold") # two ways: pri_obj == dual_obj; or: CS condition `pri_x ⟂ dual_z` and `pri_w ⟂ dual_y`
 println("\nAt last check primal and dual variable bounds, do it your self!")
 
