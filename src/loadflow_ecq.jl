@@ -97,8 +97,6 @@ if true # data
     G,B = real(Y),imag(Y)
 end
 
-# to be reivised 11/29
-
 GRB_ENV = Gurobi.Env();
 o = Gurobi.Optimizer(GRB_ENV); # create an optimizer after an ENV's settings are determined
 pg = MOI.add_variables(o,NG) # real power output of generators
@@ -113,12 +111,11 @@ obj_function = sum(GD["c2"][g] * pg[g] * pg[g] + GD["c1"][g] * pg[g] + GD["c0"][
 MOI.set(o, MOI.ObjectiveFunction{typeof(obj_function)}(), obj_function) # DON'T revise this line!
 MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
 
-
 for n in 1:N # 3b
     MOI.add_constraint(o, rightmost_3b(n), MOI.EqualTo(-ND["P"][n]))
 end
 for n in 1:N # 3c
-    MOI.add_constraint(o, rightmost_3c(n) - B[n,n] * ckk[n], MOI.EqualTo(-ND["Q"][n]))
+    MOI.add_constraint(o, rightmost_3c(n) - bkk[n] * ckk[n], MOI.EqualTo(-ND["Q"][n]))
 end
 for b in 1:L # 3d
     k,l = LD["from"][b], LD["to"][b]
@@ -131,6 +128,7 @@ end
 
 for b in 1:L # (3f)
     k,l = LD["from"][b], LD["to"][b]
+    # MOI.add_constraint(o, 1. * ckl[b] * ckl[b] + 1. * tkl[b] * tkl[b] - 1. * ckk[k] * ckk[l] , MOI.EqualTo(0.)) # this Eq constr is NonConvex, thus run `MOI.set(o, MOI.RawOptimizerAttribute("NonConvex"), 2)` 
     MOI.add_constraint(o, 1. * ckl[b] * ckl[b] + 1. * tkl[b] * tkl[b] - 1. * ckk[k] * ckk[l] , MOI.LessThan(0.))
 end
 for n in 1:N # 3l
@@ -143,7 +141,7 @@ MOI.add_constraint.(o, pg, MOI.LessThan.(GD["Pmax"]))
 MOI.add_constraint.(o, qg, MOI.GreaterThan.(GD["Qmin"]))
 MOI.add_constraint.(o, qg, MOI.LessThan.(GD["Qmax"]))
 
-MOI.set(o, MOI.RawOptimizerAttribute("NonConvex"), 2)
+# MOI.set(o, MOI.RawOptimizerAttribute("NonConvex"), 2)
 MOI.optimize!(o)
 MOI.get(o, MOI.TerminationStatus())
 
@@ -154,10 +152,4 @@ MOI.get(o, MOI.VariablePrimal(), qkl)
 MOI.get(o, MOI.VariablePrimal(), ckk)
 MOI.get(o, MOI.VariablePrimal(), ckl)
 MOI.get(o, MOI.VariablePrimal(), tkl)
-
-
-
-
-
-
 
