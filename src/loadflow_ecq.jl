@@ -47,6 +47,8 @@ if true # data
     LD = Dict( # lines
         "from"  =>[1,1,2,2,2,3,4],
         "to"    =>[2,3,3,4,5,4,5],
+        "heat_lim" => fill(0.8,7),
+        "anglediff_lim" => fill(pi/6,7),
         "r"     =>[2.,8,6,6,4,1,8]/100,
         "x"     =>[6.,24,18,18,12,3,24]/100,
         "half_b"=>[3,2.5,2,2,1.5,1,2.5]/100,
@@ -115,49 +117,60 @@ MOI.add_constraint(o, sum(GD["c2"][g] * pg[g] * pg[g] + GD["c1"][g] * pg[g] for 
 obj_function = 1. * aux_obj
 MOI.set(o, MOI.ObjectiveFunction{typeof(obj_function)}(), obj_function) # DON'T revise this line!
 MOI.set(o, MOI.ObjectiveSense(), MOI.MIN_SENSE)
-
-for n in 1:N # 3b
-    MOI.add_constraint(o, rightmost_3b(n), MOI.EqualTo(-ND["P"][n]))
+if true # main constraints
+    for n in 1:N # 3b
+        MOI.add_constraint(o, rightmost_3b(n), MOI.EqualTo(-ND["P"][n]))
+    end
+    for n in 1:N # 3c
+        MOI.add_constraint(o, rightmost_3c(n) - bkk[n] * ckk[n], MOI.EqualTo(-ND["Q"][n]))
+    end
+    for b in 1:L # 3d
+        k,l = LD["from"][b], LD["to"][b]
+        MOI.add_constraint(o, 1. * pkl[b] + G[k,l] * ckk[k] - G[k,l] * ckl[b] + B[k,l] * tkl[b], MOI.EqualTo(0.))
+    end
+    for b in 1:L # 3e
+        k,l = LD["from"][b], LD["to"][b]
+        MOI.add_constraint(o, 1. * qkl[b] - B[k,l] * ckk[k] + B[k,l] * ckl[b] + G[k,l] * tkl[b], MOI.EqualTo(0.))
+    end
+    for b in 1:L # (3f) : relaxing to "≤" would Not guarantee Voltage angle `cos(asin(sin_delta)) == cos_delta` relations
+        k,l = LD["from"][b], LD["to"][b]
+        MOI.add_constraint(o, 1. * ckl[b] * ckl[b] + 1. * tkl[b] * tkl[b] - 1. * ckk[k] * ckk[l] , MOI.EqualTo(0.)) # this Eq constr is NonConvex, thus run `MOI.set(o, MOI.RawOptimizerAttribute("NonConvex"), 2)` 
+        # MOI.add_constraint(o, 1. * ckl[b] * ckl[b] + 1. * tkl[b] * tkl[b] - 1. * ckk[k] * ckk[l] , MOI.LessThan(0.))
+    end
+    # (3g) is put off to the NL portion, (3h) is useless
+    for b in 1:L # 3i
+        MOI.add_constraint(o, 1. * pkl[b] * pkl[b] + 1. * qkl[b] * qkl[b], MOI.LessThan(LD["heat_lim"][b] ^ 2))
+    end
+    MOI.add_constraint.(o, pg, MOI.GreaterThan.(GD["Pmin"])) # 3j
+    MOI.add_constraint.(o, pg, MOI.LessThan.(GD["Pmax"]))
+    MOI.add_constraint.(o, qg, MOI.GreaterThan.(GD["Qmin"])) # 3k
+    MOI.add_constraint.(o, qg, MOI.LessThan.(GD["Qmax"]))
+    for n in 1:N # 3l
+        MOI.add_constraint(o, ckk[n], MOI.LessThan( ND["Vmax"][n] ^ 2 ))
+        MOI.add_constraint(o, ckk[n], MOI.GreaterThan( ND["Vmin"][n] ^ 2 ))
+    end
+    for b in 1:L # 3m
+        k, l, ad = LD["from"][b], LD["to"][b], LD["anglediff_lim"][b]
+        MOI.add_constraint(o, 1. * tha[k] - tha[l], MOI.LessThan(    ad))
+        MOI.add_constraint(o, 1. * tha[k] - tha[l], MOI.GreaterThan(-ad))
+    end
+    # (3n) specify decisions and is not a constraint
+    # dropping (3g) would Not ensure Voltage angle "KVL" relations
+    for b in 1:L # NL portion
+        Nonlinear.add_constraint(nlpor,:($(ckl[b]) * sin($(tha[LD["from"][b]]) - $(tha[LD["to"][b]])) + $(tkl[b]) * cos($(tha[LD["from"][b]]) - $(tha[LD["to"][b]]))), MOI.EqualTo(0.)) # see notes on (5)
+    end
+    evaluator = Nonlinear.Evaluator(nlpor,Nonlinear.ExprGraphOnly(),MOI.VariableIndex[]) # Only the 1st arg matters. the 2nd parameter appears as a hint, the last parameter is a place-holder
+    MOI.set(o,MOI.NLPBlock(),MOI.NLPBlockData(evaluator))
 end
-for n in 1:N # 3c
-    MOI.add_constraint(o, rightmost_3c(n) - bkk[n] * ckk[n], MOI.EqualTo(-ND["Q"][n]))
-end
-for b in 1:L # 3d
-    k,l = LD["from"][b], LD["to"][b]
-    MOI.add_constraint(o, 1. * pkl[b] + G[k,l] * ckk[k] - G[k,l] * ckl[b] + B[k,l] * tkl[b], MOI.EqualTo(0.))
-end
-for b in 1:L # 3e
-    k,l = LD["from"][b], LD["to"][b]
-    MOI.add_constraint(o, 1. * qkl[b] - B[k,l] * ckk[k] + B[k,l] * ckl[b] + G[k,l] * tkl[b], MOI.EqualTo(0.))
-end
-for b in 1:L # (3f) : relaxing to "≤" would Not guarantee Voltage angle `cos(asin(sin_delta)) == cos_delta` relations
-    k,l = LD["from"][b], LD["to"][b]
-    MOI.add_constraint(o, 1. * ckl[b] * ckl[b] + 1. * tkl[b] * tkl[b] - 1. * ckk[k] * ckk[l] , MOI.EqualTo(0.)) # this Eq constr is NonConvex, thus run `MOI.set(o, MOI.RawOptimizerAttribute("NonConvex"), 2)` 
-    # MOI.add_constraint(o, 1. * ckl[b] * ckl[b] + 1. * tkl[b] * tkl[b] - 1. * ckk[k] * ckk[l] , MOI.LessThan(0.))
-end
-for n in 1:N # 3l
-    MOI.add_constraint(o, ckk[n], MOI.LessThan( ND["Vmax"][n] ^ 2 ))
-    MOI.add_constraint(o, ckk[n], MOI.GreaterThan( ND["Vmin"][n] ^ 2 ))
-end
-MOI.add_constraint.(o, pg, MOI.GreaterThan.(GD["Pmin"])) # 3j
-MOI.add_constraint.(o, pg, MOI.LessThan.(GD["Pmax"]))
-MOI.add_constraint.(o, qg, MOI.GreaterThan.(GD["Qmin"])) # 3k
-MOI.add_constraint.(o, qg, MOI.LessThan.(GD["Qmax"]))
-
-# dropping (3g) would Not ensure Voltage angle "KVL" relations
-for b in 1:L # nonlinear portion
-    Nonlinear.add_constraint(nlpor,:($(ckl[b]) * sin($(tha[LD["from"][b]]) - $(tha[LD["to"][b]])) + $(tkl[b]) * cos($(tha[LD["from"][b]]) - $(tha[LD["to"][b]]))), MOI.EqualTo(0.)) # see notes on (5)
-end
-evaluator = Nonlinear.Evaluator(nlpor,Nonlinear.ExprGraphOnly(),MOI.VariableIndex[]) # Only the 1st arg matters. the 2nd parameter appears as a hint, the last parameter is a place-holder
-MOI.set(o,MOI.NLPBlock(),MOI.NLPBlockData(evaluator))
 
 # MOI.set(o, MOI.RawOptimizerAttribute("NonConvex"), 2) # For Gurobi
 MOI.set(o, MOI.RawOptimizerAttribute("limits/gap"), 0.005) # For SCIP
 
 MOI.optimize!(o)
-MOI.get(o, MOI.TerminationStatus())
-MOI.get(o, MOI.VariablePrimal(), pkl)
-MOI.get(o, MOI.VariablePrimal(), qkl)
+@assert MOI.get(o, MOI.TerminationStatus()) == MOI.OPTIMAL
+
+pkl_ = MOI.get(o, MOI.VariablePrimal(), pkl)
+qkl_ = MOI.get(o, MOI.VariablePrimal(), qkl)
 
 S = zeros(ComplexF64, N)
 S[1:2] .= MOI.get(o, MOI.VariablePrimal(), pg) .+ im .* MOI.get(o, MOI.VariablePrimal(), qg)
@@ -166,10 +179,6 @@ S = S .- (ND["P"] .+ im .* ND["Q"]) # vector of nodal injecting complex power
 V = sqrt.(MOI.get(o, MOI.VariablePrimal(), ckk))
 tha_ = MOI.get(o, MOI.VariablePrimal(), tha)
 U = V .* exp.(im .* tha_) # vector of nodal voltage phasor
-
-
-
-
 
 
 # ------------- validation check -----------------
