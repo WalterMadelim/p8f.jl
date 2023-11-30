@@ -4,7 +4,8 @@ import LinearAlgebra
 # import Gurobi
 import SCIP
 
-# without heat cap yet
+# (MINLP) Model in section 2.1 in [Aigner/Burlacu_ijoc_2023]
+# solving AC optimal power flow
 # 30/11/23
 
 if true # functions
@@ -114,6 +115,8 @@ if true # JuMP modeling
         end
     end
     # constraints
+    JuMP.@constraint(model, [b = 1:L], pbl[b] ^ 2 + qbl[b] ^ 2 <= .9 ^ 2) # 3i_part_1
+    JuMP.@constraint(model, [b = 1:L], pbi[b] ^ 2 + qbi[b] ^ 2 <= .9 ^ 2) # 3i_part_2
     JuMP.@constraint(model, [k = 1:N], gkk[k] * ckk[k]
     +   sum(pbl[ ND["leaving_break_p"][k] : ND["leaving_break"][k] ])
     +   sum(pbi[ ND["injecting_break_p"][k] : ND["injecting_break"][k] ])
@@ -135,6 +138,7 @@ end
 
 JuMP.optimize!(model)
 @assert JuMP.termination_status(model) == JuMP.OPTIMAL
+@info "Optimal_ObjVal = $(JuMP.objective_value(model))"
 
 if true # get primal value
     _pg = JuMP.value.(  pg  )
@@ -174,8 +178,6 @@ tha[4] = tha[5] + _thakl[7]
 tha[3] = tha[4] + _thakl[6]
 tha[2] = tha[5] + _thakl[5]
 tha[1] = tha[2] + _thakl[1]
-
-
 
 recover_thakl = [tha[ LD["from"][b] ] - tha[ LD["to"][b] ] for b in 1:L]
 recover_thakl .- _thakl
