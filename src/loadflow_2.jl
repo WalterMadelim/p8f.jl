@@ -6,7 +6,7 @@ import SCIP
 
 # (MINLP) Model in section 2.1 in [Aigner/Burlacu_ijoc_2023]
 # solving AC optimal power flow
-# 30/11/23
+# 01/12/23
 
 if true # functions
     function Base.sum(e::Vector{Any})
@@ -15,12 +15,19 @@ if true # functions
     function vdict(x, x_) # used only once, at primal_feasibility_report
         return Dict(x[i] => x_[i] for i in eachindex(x))
     end
-    function ct(uk,tk,ul,tl) # this function is not related to model building
-        tkl = tk - tl
+    function ct(uk,ul,tkl) # this function is not related to m building
         return uk * ul * cos(tkl), -uk * ul * sin(tkl) # ckl, tkl
     end # Additional: ckk = uk ^ 2, for any bus k
+    function cnt_range(k, sense)
+        if sense == 0 # injecting
+            return ND["injecting_break_p"][k] : ND["injecting_break"][k]
+        else # sense == 1: leaving
+            return ND["leaving_break_p"][k] : ND["leaving_break"][k]
+        end
+    end
 end
 if true # data
+    line_heat_cap = .9
     LD = Dict( # lines
         "from"  =>[1,1,2,2,2,3,4],
         "to"    =>[2,3,3,4,5,4,5],
@@ -82,63 +89,52 @@ if true # data
 end
 
 if true # JuMP modeling
-    model = JuMP.Model(SCIP.Optimizer)
-    # generation
-    JuMP.@variable(model, GD["Pmin"][g] <= pg[g = 1:NG] <= GD["Pmax"][g])
-    JuMP.@objective(model, Min, sum(GD["c2"][g] * pg[g] * pg[g] + GD["c1"][g] * pg[g] + GD["c0"][g] for g in 1:NG))
-    JuMP.@variable(model, GD["Qmin"][g] <= qg[g = 1:NG] <= GD["Qmax"][g])
-    # branch
-    JuMP.@variable(model, ckl[1:L])
-    JuMP.@variable(model, tkl[1:L])
-    JuMP.@variable(model, -LD["anglediff_lim"][b] <= thakl[b=1:L] <= LD["anglediff_lim"][b]) # 3m
-    # nodes
-    JuMP.@variable(model, ND["Vmin"][n]^2 <= ckk[n = 1:N] <= ND["Vmax"][n]^2)
-    # define 4 quantities related to heat capacity of a line, where pbl = real(sul), pbi = real(sur), [ul = upper left in a `π`-model]
-    JuMP.@variable(model, pbl[1:L])
-    JuMP.@variable(model, qbl[1:L])
-    JuMP.@variable(model, pbi[1:L])
-    JuMP.@variable(model, qbi[1:L])
-    cnt = 1
-    for k in 1:N
-        for (b,l) in zip(ND["leaving_branch"][k], ND["leaving_node"][k]) # (k) ---b--> (l)
-            JuMP.@constraint(model, G[k, l] * (ckl[b]-ckk[k]) - B[k, l] * tkl[b] - pbl[cnt] == 0.)
-            JuMP.@constraint(model, -G[k, l] * tkl[b] - B[k, l] * (ckl[b]-ckk[k]) - qbl[cnt] == 0.)
-            cnt += 1
+    m = JuMP.Model(SCIP.Optimizer)
+    JuMP.@variable(m, GD["Pmin"][g] <= pg[g = 1:NG] <= GD["Pmax"][g])
+    JuMP.@variable(m, GD["Qmin"][g] <= qg[g = 1:NG] <= GD["Qmax"][g])
+    JuMP.@variable(m, ckl[1:L])
+    JuMP.@variable(m, tkl[1:L])
+    JuMP.@variable(m, ND["Vmin"][n]^2 <= ckk[n = 1:N] <= ND["Vmax"][n]^2)
+    JuMP.@variable(m, tha[1:N])
+    JuMP.fix(tha[end], 0.)
+    JuMP.@variable(m, -LD["anglediff_lim"][b] <= thakl[b=1:L] <= LD["anglediff_lim"][b]) # 3m   
+    JuMP.@variable(m, pbl[1:L])# define 4 quantities related to heat capacity of a line, where pbl = real(sul), pbi = real(sur), [ul = upper left in a `π`-m]
+    JuMP.@variable(m, qbl[1:L])
+    JuMP.@variable(m, pbi[1:L])
+    JuMP.@variable(m, qbi[1:L])
+    if true # modeling of the complicated last 4 variables
+        for k in 1:N, (b,l,cnt) in zip(ND["leaving_branch"][k], ND["leaving_node"][k], cnt_range(k, 1)) # (k) ---b--> (l)
+            JuMP.@constraint(m, G[k, l] * (ckl[b]-ckk[k]) - B[k, l] * tkl[b] - pbl[cnt] == 0.)
+            JuMP.@constraint(m, -G[k, l] * tkl[b] - B[k, l] * (ckl[b]-ckk[k]) - qbl[cnt] == 0.)
         end
-    end
-    cnt = 1
-    for k in 1:N
-        for (b,l) in zip(ND["injecting_branch"][k], ND["injecting_node"][k]) # (l) ---b--> (k)
-            JuMP.@constraint(model, G[l, k] * (ckl[b]-ckk[k]) + B[l, k] * tkl[b] - pbi[cnt] == 0.)
-            JuMP.@constraint(model, G[l, k] * tkl[b] - B[l, k] * (ckl[b]-ckk[k]) - qbi[cnt] == 0.)
-            cnt += 1
+        for k in 1:N, (b,l,cnt) in zip(ND["injecting_branch"][k], ND["injecting_node"][k], cnt_range(k, 0)) # (l) ---b--> (k)
+            JuMP.@constraint(m, G[l, k] * (ckl[b]-ckk[k]) + B[l, k] * tkl[b] - pbi[cnt] == 0.)
+            JuMP.@constraint(m, G[l, k] * tkl[b] - B[l, k] * (ckl[b]-ckk[k]) - qbi[cnt] == 0.)
         end
+        JuMP.@constraint(m, [b = 1:L], pbl[b] ^ 2 + qbl[b] ^ 2 <= line_heat_cap ^ 2) # 3i_part_1
+        JuMP.@constraint(m, [b = 1:L], pbi[b] ^ 2 + qbi[b] ^ 2 <= line_heat_cap ^ 2) # 3i_part_2
     end
-    # constraints
-    JuMP.@constraint(model, [b = 1:L], pbl[b] ^ 2 + qbl[b] ^ 2 <= .9 ^ 2) # 3i_part_1
-    JuMP.@constraint(model, [b = 1:L], pbi[b] ^ 2 + qbi[b] ^ 2 <= .9 ^ 2) # 3i_part_2
-    JuMP.@constraint(model, [k = 1:N], gkk[k] * ckk[k]
-    +   sum(pbl[ ND["leaving_break_p"][k] : ND["leaving_break"][k] ])
-    +   sum(pbi[ ND["injecting_break_p"][k] : ND["injecting_break"][k] ])
-    - sum([pg[g] for g in ND["G_ind"][k]]) == -ND["P"][k] ) # revised nodal P balance
-    JuMP.@constraint(model, [k = 1:N], -bkk[k] * ckk[k]
-    +   sum(qbl[ ND["leaving_break_p"][k] : ND["leaving_break"][k] ])
-    +   sum(qbi[ ND["injecting_break_p"][k] : ND["injecting_break"][k] ])
-    - sum([qg[g] for g in ND["G_ind"][k]]) == -ND["Q"][k]) # revised nodal Q balance
-    for b in 1:L # for each branch b
-        k, l = LD["from"][b], LD["to"][b]
-        JuMP.@constraint(model, ckl[b]^2 + tkl[b]^2 - ckk[k] * ckk[l] == 0.) # 3f, nonconvex
-        JuMP.@NLconstraint(model, ckl[b] * sin(thakl[b]) + tkl[b] * cos(thakl[b]) == 0.) # (5) revised, << NONLINEAR Constraint !!
+    
+    JuMP.@constraint(m, [k = 1:N], gkk[k] * ckk[k] + sum(pbl[ cnt_range(k, 1) ]) + sum(pbi[ cnt_range(k, 0) ]) 
+    - sum([pg[g] for g in ND["G_ind"][k]]) == -ND["P"][k] ) # reformulated nodal P balance 
+    JuMP.@constraint(m, [k = 1:N], -bkk[k] * ckk[k] + sum(qbl[ cnt_range(k, 1) ]) + sum(qbi[ cnt_range(k, 0) ])
+    - sum([qg[g] for g in ND["G_ind"][k]]) == -ND["Q"][k]) # reformulated nodal Q balance
+    for b in 1:L, k in [LD["from"][b]], l in [LD["to"][b]] # loop for k,l is dumb
+        JuMP.@constraint(m, thakl[b] == tha[k] - tha[l]) # defining relation of thakl
+        JuMP.@constraint(m, ckl[b]^2 + tkl[b]^2 - ckk[k] * ckk[l] == 0.) # 3f, nonconvex quadratic
+        JuMP.@NLconstraint(m, ckl[b] * sin(thakl[b]) + tkl[b] * cos(thakl[b]) == 0.) # (5) revised, << NONLINEAR Constraint !!
     end
-    # KVL (7 variables - 3 constraints = 5 variables - 1 constraints)
-    JuMP.@constraint(model, thakl[1] + thakl[3] - thakl[2] == 0.)
-    JuMP.@constraint(model, thakl[4] + thakl[7] - thakl[5] == 0.)
-    JuMP.@constraint(model, thakl[3] + thakl[6] - thakl[4] == 0.)
+    # # KVL (7 variables - 3 constraints = 5 variables - 1 constraints)
+    # JuMP.@constraint(m, thakl[1] + thakl[3] - thakl[2] == 0.)
+    # JuMP.@constraint(m, thakl[4] + thakl[7] - thakl[5] == 0.)
+    # JuMP.@constraint(m, thakl[3] + thakl[6] - thakl[4] == 0.)
+    
+    JuMP.@objective(m, Min, sum(GD["c2"][g] * pg[g] * pg[g] + GD["c1"][g] * pg[g] + GD["c0"][g] for g in 1:NG)) # only pg related
 end
 
-JuMP.optimize!(model)
-@assert JuMP.termination_status(model) == JuMP.OPTIMAL
-@info "Optimal_ObjVal = $(JuMP.objective_value(model))"
+JuMP.optimize!(m)
+@assert JuMP.termination_status(m) == JuMP.OPTIMAL
+@info "Optimal_ObjVal = $(JuMP.objective_value(m))"
 
 if true # get primal value
     _pg = JuMP.value.(  pg  )
@@ -146,6 +142,7 @@ if true # get primal value
     _ckl = JuMP.value.( ckl )
     _tkl = JuMP.value.( tkl )
     _ckk = JuMP.value.( ckk )
+    _tha = JuMP.value.( tha )
     _thakl = JuMP.value.( thakl )
     _pbl = JuMP.value.(pbl)
     _qbl = JuMP.value.(qbl)
@@ -157,6 +154,7 @@ if true # get primal value
         vdict(ckl, _ckl),
         vdict(tkl, _tkl),
         vdict(ckk, _ckk),
+        vdict(tha, _tha),
         vdict(thakl, _thakl),
         vdict(pbl, _pbl),
         vdict(qbl, _qbl),
@@ -165,32 +163,21 @@ if true # get primal value
     )                       
 end
 
-JuMP.primal_feasibility_report(model, primal_value_dict)
+vio_dict = JuMP.primal_feasibility_report(m, primal_value_dict)
+println("MaxVio = $(maximum(values(vio_dict)))")
 
 S = zeros(ComplexF64, N)
 S[1:2] .= _pg .+ im .* _qg
 S = S .- (ND["P"] .+ im .* ND["Q"]) # vector of nodal injecting complex power
 
 V = sqrt.(_ckk)
-
-tha = zeros(N) # nodal voltage angle
-tha[4] = tha[5] + _thakl[7]
-tha[3] = tha[4] + _thakl[6]
-tha[2] = tha[5] + _thakl[5]
-tha[1] = tha[2] + _thakl[1]
-
-recover_thakl = [tha[ LD["from"][b] ] - tha[ LD["to"][b] ] for b in 1:L]
-recover_thakl .- _thakl
-
-U = V .* exp.(im .* tha) # vector of nodal voltage phasor
-
+U = V .* exp.(im .* _tha) # vector of nodal voltage phasor
 
 # ------------- validation check -----------------
 # 1, defining relations (2)
 for b in 1:L
-    k,l = LD["from"][b], LD["to"][b]
-    tmp1, tmp2 = ct(V[k], tha[k], V[l], tha[l])
-    println( "err: $(tmp1 - _ckl[b]), $(tmp2 - _tkl[b])" )
+    tmp1, tmp2 = ct(V[LD["from"][b]], V[LD["to"][b]], _thakl[b])
+    println( "trigono_err: $(tmp1 - _ckl[b]), $(tmp2 - _tkl[b])" )
 end
 # 2, power flows
 z = [LD["r"][b] + im * LD["x"][b] for b in 1:L]
@@ -211,3 +198,29 @@ node_power_error_vector = S .- power_inj_net
 I_inj_net = [sum([ Iul[i] for i in ND["leaving_branch"][n] ]) - sum([ Iur[i] for i in ND["injecting_branch"][n] ]) for n in 1:N]
 I_inj = Y * U
 node_current_error_vector = I_inj_net .- I_inj
+
+# [ Info: Optimal_ObjVal = 125.70735558298271
+
+# julia> S
+# 5-element Vector{ComplexF64}:
+#  0.3251605723594919 - 0.003775866886460394im
+#  1.1512011005038718 + 0.03969576617389689im
+#               -0.45 - 0.15im
+#                -0.4 - 0.05im
+#                -0.6 - 0.1im
+
+# julia> V
+# 5-element Vector{Float64}:
+#  1.1025352351484579
+#  1.0999999999999812
+#  1.0766472900704889
+#  1.0764605556602285
+#  1.072048075080663
+
+# julia> _tha
+# 5-element Vector{Float64}:
+#   0.05890025075269935
+#   0.055762995860397145
+#   0.01021165128577195
+#   0.0071299249925721635
+#  -0.0
