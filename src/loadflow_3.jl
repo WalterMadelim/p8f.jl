@@ -51,7 +51,7 @@ if true # functions
 end
 
 if true # data
-    tmp = net_read(joinpath(pwd(),"data","case14.m")) # modify data source file here
+    tmp = net_read(joinpath(pwd(),"data","case30.m")) # We do not support double-line between 2 adjacent nodes currently!
     N, NG, L, Nshunt, Nload = length.(tmp)
     Dbus, Dgen, Dbranch, Dshunt, Dload = tmp 
     LD = Dict( # lines
@@ -76,7 +76,7 @@ if true # data
         "Pg" =>   Float64[Dgen[l(g)]["pg"] for g in 1:NG],
         "Qg" =>   Float64[Dgen[l(g)]["qg"] for g in 1:NG]
     )
-    if true # This is a patch due to the inherent contradiction in the MATPOWER source data
+    if false # This is a patch for [ case14.m ] due to the inherent contradiction in the MATPOWER source data
         GD["Qmax"] .= .5
         GD["Qmin"] .= -.5
     end
