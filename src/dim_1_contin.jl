@@ -1,4 +1,4 @@
-# using CairoMakie
+using CairoMakie
 import Ipopt
 import JuMP
 import IntervalOptimisation
@@ -13,8 +13,10 @@ function aminimizer(f, l, h)
     interval = IntervalOptimisation.minimise(f, IntervalOptimisation.interval(l, h), tol=1e-4)[2][1]
     (interval.lo + interval.hi)/2
 end
+
 function dim1_x_ast(f, l, h) # find a global minimum x∗ of f over [l,h]
     x1 = aminimizer(f, l, h)
+    println(x1)
     m = JuMP.Model(Ipopt.Optimizer) # The valid range for this real option is 0 < tol and its default value is 1e-8
     JuMP.@variable(m, l <= x <= h, start = x1)
     JuMP.@objective(m, Min, f(x))
@@ -22,10 +24,27 @@ function dim1_x_ast(f, l, h) # find a global minimum x∗ of f over [l,h]
     JuMP.optimize!(m) 
     @assert JuMP.termination_status(m) == JuMP.LOCALLY_SOLVED
     x2 = JuMP.value(x)
+    println(x2)
     if f(x2) >= f(x1)
         error("check if f(x2) > f(x1) which is invalid, or f(x1) == f(x2) which is actually acceptable.")
-    elseif abs(x2 - x1) <= 1e-4
+    elseif abs(x2 - x1) > 1e-3
         error("the improved minimizer is moving far away!")
+    end
+    return x2
+end
+function dim1_x_max(f, l, h) # find a global minimum x∗ of f over [l,h]
+    x1 = aminimizer(x -> -f(x), l, h)
+    m = JuMP.Model(Ipopt.Optimizer) # The valid range for this real option is 0 < tol and its default value is 1e-8
+    JuMP.@variable(m, l <= x <= h, start = x1)
+    JuMP.@objective(m, Max, f(x))
+    JuMP.set_silent(m)
+    JuMP.optimize!(m) 
+    @assert JuMP.termination_status(m) == JuMP.LOCALLY_SOLVED
+    x2 = JuMP.value(x)
+    if f(x2) <= f(x1)
+        error("check if f(x2) < f(x1) which is invalid, or f(x1) == f(x2) which is actually acceptable.")
+    elseif abs(x2 - x1) > 1e-3
+        error("the improved maximizer is moving far away!")
     end
     return x2
 end
