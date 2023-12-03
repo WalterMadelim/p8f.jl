@@ -1,8 +1,10 @@
-using CairoMakie
+# using CairoMakie
 import Ipopt
 import JuMP
 import IntervalOptimisation
-
+function g(x)
+    sin(x) + sin((10.0 / 3.0) * x)
+end
 function f(x) # a 1-dimensional continuous function constructed for optimization
     # (x = range(-2.5, 3.8, length = 400); y = f.(x); lines(x,y))
     # [The Min] f(1.8833787463035296) = -19.511359073980536
@@ -13,10 +15,8 @@ function aminimizer(f, l, h)
     interval = IntervalOptimisation.minimise(f, IntervalOptimisation.interval(l, h), tol=1e-4)[2][1]
     (interval.lo + interval.hi)/2
 end
-
 function dim1_x_ast(f, l, h) # find a global minimum x∗ of f over [l,h]
     x1 = aminimizer(f, l, h)
-    println(x1)
     m = JuMP.Model(Ipopt.Optimizer) # The valid range for this real option is 0 < tol and its default value is 1e-8
     JuMP.@variable(m, l <= x <= h, start = x1)
     JuMP.@objective(m, Min, f(x))
@@ -24,7 +24,6 @@ function dim1_x_ast(f, l, h) # find a global minimum x∗ of f over [l,h]
     JuMP.optimize!(m) 
     @assert JuMP.termination_status(m) == JuMP.LOCALLY_SOLVED
     x2 = JuMP.value(x)
-    println(x2)
     if f(x2) >= f(x1)
         error("check if f(x2) > f(x1) which is invalid, or f(x1) == f(x2) which is actually acceptable.")
     elseif abs(x2 - x1) > 1e-3
