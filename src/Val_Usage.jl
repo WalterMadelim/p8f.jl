@@ -10,3 +10,5 @@ foo ∘ Val
 
 julia> s1,s2 = g(true),g(false)
 ("arg==true", "arg==false")
+
+rcv_val(::Val{N}) where N = N # recover value
