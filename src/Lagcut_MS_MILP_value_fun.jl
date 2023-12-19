@@ -8,6 +8,12 @@ import Distributions
 
 # use Lag cut (13) to generate (very tight, sometimes precise) cutting plane model for MS-MILP value functions
 # 19/12/23
+# Design Std:
+# 1, at each iteration, each stage, == 1 trial point (x, tha) must be generated and recorded, we allow the recurrence of x, but `tha` MUST strictly improve.
+# 2, at each iteration, each stage, <= 1 cut is generated
+# Test report:
+# when t = 2, the result is perfect.
+# when t = 4, the theoretical opt solution if found, but use (13) cut itself cannot give a prove of this fact. i.e., the lb is prevented from improving further to the ub.
 
 function get_x_bound(t::Int, upper::Bool) # used for initialization, get the lb of state variables.
     @assert 1 <= t <= T
@@ -84,8 +90,8 @@ if true #【Functions】cutting plane model Q̂ related
         end
         JuMP.@variable(m, boundDict["hatQl"][t] <= tha <= boundDict["hatQu"][t]) # aux objective. Notice: the lower bound here is as important as those L-cuts.
         lD = hatQ[t] # local Dict
-        for (cx, ct, rhs) in zip(lD["cx"], lD["ct"], lD["rhs"]) # this is the cutting plane model of Q_t(x[t-1])
-            JuMP.@constraint(m, cx * x + ct * tha >= rhs)
+        for (cx, ct, rhs, old) in zip(lD["cx"], lD["ct"], lD["rhs"], lD["is_inferior"]) # this is the cutting plane model of Q_t(x[t-1])
+            old || JuMP.@constraint(m, cx * x + ct * tha >= rhs)
         end
         JuMP.@objective(m, Min, tha)
         JuMP.optimize!(m)
@@ -113,8 +119,8 @@ if true #【Functions】algorithm1 and its affiliates, t in 2:T
         JuMP.@constraint(m, abs_x >= -x)
         JuMP.@constraint(m, x == x_tm1 + (2. * cb - 1.) + xi[t])
         lD = hatQ[t+1]
-        for (cx, ct, rhs) in zip(lD["cx"], lD["ct"], lD["rhs"])
-            JuMP.@constraint(m, cx * x + ct * tha >= rhs)
+        for (cx, ct, rhs, old) in zip(lD["cx"], lD["ct"], lD["rhs"], lD["is_inferior"]) # this is the cutting plane model of Q_t(x[t-1])
+            old || JuMP.@constraint(m, cx * x + ct * tha >= rhs)
         end
         JuMP.@constraint(m, f_t == beta^(t-1) * abs_x)
         coef_pai0 = f_t + tha
@@ -159,61 +165,62 @@ if true #【Functions】algorithm1 and its affiliates, t in 2:T
         lb = val - pai * x_hat - pai0 * tha_hat # obj value corr to the feas. solu just derived
         return ub, lb, pai, pai0, val, c_pai, c_pai0
     end
-    function algorithm1(t, ite, x_hat, tha_hat) # generate a (13) cut for Q_t(⋅) that cut off trial (x̂t-1, curr_hat_Q_t(x̂t-1))
+    function algorithm1(t, ite, x_hat, tha_hat, delta = 0.9) # generate a (13) cut for Q_t(⋅) that cut off trial (x̂t-1, curr_hat_Q_t(x̂t-1))
         @assert 2 <= t <= T
-        delta = 0.9
         icbt = zeros(4) # [1]=lb  [2]=pai  [3]=pai0 [4]=Q^ast_t(pai, pai0)  All incumbent 
         ub, icbt[1], icbt[2], icbt[3], icbt[4], c_pai, c_pai0 = algo1_ini(t, x_hat, tha_hat) # (3.8263752000000006, 0.0, 0.0, 1.0, 1.4450970583895657, 0.0)
         while true
             if ub <= 1e-6
-                @warn "This trail point cannot be cut off with algorithm1." t ite x_hat tha_hat ub
-                return nothing
-            end
-            if icbt[1] > (1.0 - delta) * ub + 1e-6 
-                if icbt[3] > 0.
-                    @assert icbt[2] * x_hat + icbt[3] * tha_hat < icbt[4] - 1e-6
+                @info "This trail point cannot be cut off with algorithm1 (is saturated)." t ite x_hat tha_hat ub
+                return false
+            elseif icbt[1] > (1.0 - delta) * ub + 1e-6 # cut off: by algo design
+                if icbt[3] < 0.
+                    error("Algo1: very serious wrong!")
+                elseif icbt[3] == 0.
+                    error("Algo1: intend to generate feas. cut, which is abnormal!")
+                else # give birth to a normal opt. cut
+                    cut_off_dist = icbt[4] - (icbt[2] * x_hat + icbt[3] * tha_hat)
+                    @assert cut_off_dist > 1e-6 # cut off: the authentic certificate 
                     if isempty(hatQ[t]["cut_id"])
                         push!(hatQ[t]["cut_id"], 1)
                     else
                         push!(hatQ[t]["cut_id"], 1 + maximum(hatQ[t]["cut_id"]))
                     end
                     push!(hatQ[t]["gen_in_ite"], ite)
+                    push!(hatQ[t]["x_trial"], x_hat)
+                    push!(hatQ[t]["t_trial"], tha_hat)
                     push!(hatQ[t]["cx"], icbt[2])
                     push!(hatQ[t]["ct"], icbt[3])
                     push!(hatQ[t]["rhs"], icbt[4])
-                    push!(hatQ[t]["x_trial"], x_hat)
-                    push!(hatQ[t]["t_trial"], tha_hat)
-                    @debug "algo1 SUCCESS: cut with distance" strengthed_Qt_ind=t icbt
-                    return nothing
-                elseif icbt[3] == 0.
-                    error("Algo1: how to deal with coeff_tha == 0. ??? ")
-                else
-                    error("Algo1: very serious wrong!")
+                    push!(hatQ[t]["is_inferior"], false)
+                    @debug "algo1 SUCCESS: cut off!" cut_off_dist strengthed_Qt_ind=t icbt
+                    return true
                 end
-            end
-            push!(hatQast[t]["cp"], c_pai)
-            push!(hatQast[t]["cp0"], c_pai0)
-            m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
-            JuMP.set_silent(m)
-            JuMP.@variable(m, pai)
-            JuMP.@variable(m, pai0 >= 0.)
-            JuMP.@constraint(m, 1. - pai0 >=  pai) # |pai| + pai0 <= 1 
-            JuMP.@constraint(m, 1. - pai0 >= -pai) # |pai| + pai0 <= 1 
-            JuMP.@variable(m, phi)
-            JuMP.@objective(m, Max, phi - x_hat * pai - tha_hat * pai0) # the surrogate objective of (17)
-            lD = hatQast[t]
-            for (cp, cp0) in zip(lD["cp"], lD["cp0"])
-                JuMP.@constraint(m, phi <= cp * pai + cp0 * pai0)
-            end
-            JuMP.optimize!(m)
-            @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-            ub = JuMP.objective_value(m)
-            pai, pai0 = JuMP.value(pai), JuMP.value(pai0) # a feas. solu of (17)
-            @assert pai0 >= 0. # otherwise it's Gurobi's fault
-            val, c_pai, c_pai0 = Q_ast(t, pai, pai0) # this is a new one compared to the initializing above
-            lb = val - pai * x_hat - pai0 * tha_hat
-            if lb > icbt[1] # the new feasible point (pai, pai0) is superior
-                icbt .= lb, pai, pai0, val
+            else
+                push!(hatQast[t]["cp"], c_pai)
+                push!(hatQast[t]["cp0"], c_pai0)
+                m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
+                JuMP.set_silent(m)
+                JuMP.@variable(m, pai)
+                JuMP.@variable(m, pai0 >= 0.)
+                JuMP.@constraint(m, 1. - pai0 >=  pai) # |pai| + pai0 <= 1 
+                JuMP.@constraint(m, 1. - pai0 >= -pai) # |pai| + pai0 <= 1 
+                JuMP.@variable(m, phi)
+                JuMP.@objective(m, Max, phi - x_hat * pai - tha_hat * pai0) # the surrogate objective of (17)
+                lD = hatQast[t]
+                for (cp, cp0) in zip(lD["cp"], lD["cp0"])
+                    JuMP.@constraint(m, phi <= cp * pai + cp0 * pai0)
+                end
+                JuMP.optimize!(m)
+                @assert JuMP.termination_status(m) == JuMP.OPTIMAL
+                ub = JuMP.objective_value(m)
+                pai, pai0 = JuMP.value(pai), JuMP.value(pai0) # a feas. solu of (17)
+                @assert pai0 >= 0. # otherwise it's Gurobi's fault
+                val, c_pai, c_pai0 = Q_ast(t, pai, pai0) # this is a new one compared to the initializing above
+                lb = val - pai * x_hat - pai0 * tha_hat
+                if lb > icbt[1] # the new feasible point (pai, pai0) is superior
+                    icbt .= lb, pai, pai0, val
+                end
             end
         end
     end
@@ -235,8 +242,8 @@ function fwd(t, x_tm1) # only the final stage Q is precise, because it involves 
     JuMP.@constraint(m, x == x_tm1 + (2. * cb - 1.) + xi[t])
     JuMP.@constraint(m, f_t == beta^(t-1) * abs_x)
     lD = hatQ[t+1]
-    for (cx, ct, rhs) in zip(lD["cx"], lD["ct"], lD["rhs"])
-        JuMP.@constraint(m, cx * x + ct * tha >= rhs)
+    for (cx, ct, rhs, old) in zip(lD["cx"], lD["ct"], lD["rhs"], lD["is_inferior"])
+        old || JuMP.@constraint(m, cx * x + ct * tha >= rhs)
     end
     JuMP.@objective(m, Min, f_t + tha)
     JuMP.optimize!(m)
@@ -265,7 +272,10 @@ function train(t::Int) # train a cutting plane model for Q_t
         ub = sum(ft_vec)
         for s in T:-1:t
             x_sm1_trial = train_trials_record[s]["x_trial"][ite]
-            algorithm1(s, ite, x_sm1_trial, Q_hat(s, x_sm1_trial)) # use an ad hoc theta_trial 
+            cut_is_gened = algorithm1(s, ite, x_sm1_trial, Q_hat(s, x_sm1_trial)) # use an ad hoc theta_trial
+            if !cut_is_gened
+                error("cut not gened at the 1st iterate of training, check if the model is already saturated!")
+            end
         end
     end
     for ite in 2:typemax(Int)
@@ -283,20 +293,26 @@ function train(t::Int) # train a cutting plane model for Q_t
             @warn "Quit training process due to saturation of cutting planes"
             return current_best_solution = x_sm1_trial
         end
+        recur_xtrial_stages = Int[]
+        corr_cut_ind_vec_vec = Vector{Int64}[]
         for s in t:T # forward pass
-            mindist, minpla = findmin(abs.(train_trials_record[s]["x_trial"] .- x_sm1_trial))
-            if mindist > 1e-5 || train_trials_record[s]["t_trial"][minpla] < lb_Q_t
-                push!(train_trials_record[s]["ite"], ite)
-                push!(train_trials_record[s]["x_trial"], x_sm1_trial)
-                push!(train_trials_record[s]["t_trial"], lb_Q_t)
-            end
-            if mindist <= 1e-5 # abnormal state 
-                if train_trials_record[s]["t_trial"][minpla] < lb_Q_t
-                    @debug "fwd: recurrence of trials, but θ is updated, thus accept." oldval = train_trials_record[s]["t_trial"][minpla]  newval = lb_Q_t
-                else
-                    @error "fwd: recurrence of inferior trials" stage=s x_sm1_trial lb_Q_t ite CMP_ite_ind=minpla
+            old_ite_ind_vec = findall(x -> x < 1e-5, abs.(train_trials_record[s]["x_trial"] .- x_sm1_trial))
+            if !isempty(old_ite_ind_vec) # the involved part 
+                if !all(train_trials_record[s]["t_trial"][old_ite_ind_vec] .< lb_Q_t)
+                    error("fwd: recurrence of inferior trials, please check!")
+                else # mark the old (all inferior) cuts at stage s
+                    cut_ind_vec = Int[]
+                    for old_ite in old_ite_ind_vec
+                        tmp = findall(x -> x == old_ite, hatQ[s]["gen_in_ite"]) # tmp = Int[] or [i::Int]
+                        cut_ind_vec = [cut_ind_vec; tmp]
+                    end
+                    push!(corr_cut_ind_vec_vec, cut_ind_vec)
+                    push!(recur_xtrial_stages, s)
                 end
             end
+            push!(train_trials_record[s]["ite"], ite)
+            push!(train_trials_record[s]["x_trial"], x_sm1_trial)
+            push!(train_trials_record[s]["t_trial"], lb_Q_t)
             x_sm1_trial, ft_vec[s], qub_vec[s] = fwd(s, x_sm1_trial) # notice we store the return at LHS
             # @info "fwd: after 1 step," x_ind=s  x_solu=x_sm1_trial  generates_ft=ft_vec[s]  aug_quasi_cost=qub_vec[s]
         end
@@ -304,15 +320,19 @@ function train(t::Int) # train a cutting plane model for Q_t
         @info " ♠ Start bwd pass"
         for s in T:-1:t
             x_sm1_trial = train_trials_record[s]["x_trial"][ite]
-            algorithm1(s, ite, x_sm1_trial, Q_hat(s, x_sm1_trial)) # use an ad hoc theta_trial 
+            cut_is_gened = algorithm1(s, ite, x_sm1_trial, Q_hat(s, x_sm1_trial)) # use an ad hoc theta_trial
+            if s in recur_xtrial_stages && cut_is_gened
+                hatQ[s]["is_inferior"][corr_cut_ind_vec_vec[findall(x -> x == s, recur_xtrial_stages)[1]]] .= true # ensures that: from now on we can discard inferior cuts
+            end
             # @info "bwd: end of ite at" s current_lb=gen_trial_xtm1(s)[2]   compared_ub=qub_vec[s]
         end
     end
 end
 
 if true # Data_Main
-    global_logger(ConsoleLogger(Info))
     # global_logger(ConsoleLogger(Debug))
+    global_logger(ConsoleLogger(Info))
+    # global_logger(ConsoleLogger(Warn))
     GRB_ENV = Gurobi.Env() # Gurobi can deal with Quad_NL and MILP, thus Gurobi is competent for these 2 cases
     T, beta = 8, .9
     xi = [1.878476717166122, 1.8552903302256576, -0.5258435328220221, -2.0016417222487712, -2.4571367609213413, -1.977854597034034, -0.1867543863247132, -0.4450970583895657]
@@ -342,12 +362,13 @@ if true # Data_Main
         "t_trial" => Float64[],
         "cx" => Float64[],
         "ct" => Float64[],
-        "rhs" => Float64[]
+        "rhs" => Float64[],
+        "is_inferior" => Bool[] # the cut is deemed inferior compared with a later-generated one
         ) for t in 2:T+1], 2:T+1) # cutting plane model for Q[2:T], while the end is dummy and kept empty
     hatQast = OffsetVector([Dict("cp" => Float64[],"cp0" => Float64[]) for _ in 2:T], 2:T) # storing affine coeffs for Q*(π, π0)
 end
 
-t = 2 # t in 2:T
+t = 5 # t in 2:T <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Test input of this program
 train_trials_record = OffsetVector([Dict(
     "ite" => Int[],
     "x_trial" => Float64[],
@@ -369,7 +390,7 @@ if false #【Plots】
     f = Figure();
     ax = Axis(f[1, 1]) # ,limits = (-4.3, 7.5, 0, 10));
     num_points = 300
-    for s in t:t+1 # draw the Q functions, through large scale programmings 
+    for s in 4:5 # draw the Q functions, through large scale programmings 
         xtm1 = range(boundDict["xl"][s-1], boundDict["xu"][s-1]; length = num_points);
         val = Q.(s, xtm1);
         lines!(ax, xtm1, val)
@@ -378,16 +399,22 @@ if false #【Plots】
         lines!(ax, xtm1, val)
         text!(ax, xtm1[1], val[1]; text = "hatQ$s")
     end
-    # s = t
-    # xtm1 = range(boundDict["xl"][s-1], boundDict["xu"][s-1]; length = num_points);
-    # f1 = L_cut(hatQ[s], 3)
-    # val = f1.(xtm1)
-    # lines!(ax, xtm1, val)
-    # text!(ax, xtm1[1], val[1]; text = "cut3")
-    # f2 = L_cut(hatQ[s], 4)
-    # val = f2.(xtm1)
-    # lines!(ax, xtm1, val)
-    # text!(ax, xtm1[1], val[1]; text = "cut4")
+    s = 4
+    xtm1 = range(boundDict["xl"][s-1], boundDict["xu"][s-1]; length = num_points);
+    for c in [3, 5, 6] # draw some cuts
+        fc = L_cut(hatQ[s], c)
+        val = fc.(xtm1)
+        lines!(ax, xtm1, val)
+        text!(ax, xtm1[1], val[1]; text = "cut$c")
+    end
+end
+
+if false # helper functions
+    function cut_viewer(s::Int)
+        for (cx, ct, rhs, old) in zip(hatQ[s]["cx"], hatQ[s]["ct"], hatQ[s]["rhs"], hatQ[s]["is_inferior"])
+            old || println(cx," ",ct," ",rhs)
+        end
+    end
 end
 
 if false # generate a different random process
