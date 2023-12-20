@@ -6,17 +6,17 @@ import Gurobi
 import LinearAlgebra
 import Distributions
 
-# use Lag cut (13) to generate (very tight, sometimes precise) cutting plane model for MS-MILP value functions
-# 19/12/23
+# use Lag cut (13) to generate (very tight, sometimes precise) cutting plane model for MS-MILP value functions, thus solve the MSP problem
+# 20/12/23
 # Design Std:
-# 1, at each iteration, each stage, == 1 trial point (x, tha) must be generated and recorded, we allow the recurrence of x, but `tha` MUST strictly improve.
-# 2, at each iteration, each stage, <= 1 cut is generated
-# Test report:
-# when t = 2, the result is perfect.
-# when t = 4, the theoretical opt solution if found, but use (13) cut itself cannot give a prove of this fact. i.e., the lb is prevented from improving further to the ub.
+# 0, whenever we say time stage `s`, `s` indicates the subsript of a Q_hat, thus `s-1` is the index of the arg of Q_hat_s
+# 1, at each ite, each stage, == 1 trial point (x, tha) must be generated and recorded, we allow the recurrence of x, but `tha` MUST weekly improve.
+# 2, at each ite, each stage, <= 1 cut is generated
+# 3, the crude MSP problem has x[0]:fixed_input, x[1], ..., x[T]; thus those Q_hat which needs study ranges from 2:T+1 with the ending one dummy.
+# 4, the programming horizon is truncated to be [s in t:T+1], where t>=2. By T+1 we mean that x[T] is included, see tip 0.
 
 function get_x_bound(t::Int, upper::Bool) # used for initialization, get the lb of state variables.
-    @assert 1 <= t <= T
+    @assert 1 <= t <= T # indices of x
     m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
     JuMP.set_silent(m)
     JuMP.@variable(m, x[s = 0:t])
@@ -35,6 +35,20 @@ function get_x_bound(t::Int, upper::Bool) # used for initialization, get the lb 
     @assert JuMP.termination_status(m) == JuMP.OPTIMAL
     JuMP.value(x[t])
 end
+function fill_boundDict(T, x0)
+    boundDict["xl"][0], boundDict["xu"][0] = x0, x0 # the dummy input
+    for s in 1:T # go forward
+        boundDict["xl"][s] = get_x_bound(s, false)
+        boundDict["xu"][s] = get_x_bound(s, true)
+    end
+    boundDict["fu"] .= [beta^(s-1) * max(abs(boundDict["xl"][s]), abs(boundDict["xu"][s])) for s in 1:T]
+    boundDict["hatQu"][T] = boundDict["fu"][T]
+    for s in T-1:-1:2 # go backward
+        boundDict["hatQu"][s] = boundDict["fu"][s] + boundDict["hatQu"][s+1]
+    end
+end
+
+
 if true #【Functions】Q related, i.e., use Gurobi's brute force to solve large-scale MILP
     function Q_kernel(t::Int, eval_mode::Bool, input_xm1::Float64)
         @assert 1 <= t <= T
@@ -78,33 +92,47 @@ if true #【Functions】Q related, i.e., use Gurobi's brute force to solve large
         the_obj_val_of_MSP = Q(1, x0)
     end
 end
-if true #【Functions】cutting plane model Q̂ related
-    function Q_hat_kernel(t::Int, eval_mode::Bool, input_xm1::Float64)
-        @assert 2 <= t <= T
-        m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
-        JuMP.set_silent(m)
-        JuMP.@variable(m, boundDict["xl"][t-1] <= x <= boundDict["xu"][t-1]) # this x is the variable of Q_t(⋅), thus x means x[t-1]
-        if eval_mode
-            @assert boundDict["xl"][t-1] <= input_xm1 <= boundDict["xu"][t-1]
-            JuMP.fix(x, input_xm1; force = true)
-        end
-        JuMP.@variable(m, boundDict["hatQl"][t] <= tha <= boundDict["hatQu"][t]) # aux objective. Notice: the lower bound here is as important as those L-cuts.
-        lD = hatQ[t] # local Dict
-        for (cx, ct, rhs, old) in zip(lD["cx"], lD["ct"], lD["rhs"], lD["is_inferior"]) # this is the cutting plane model of Q_t(x[t-1])
-            old || JuMP.@constraint(m, cx * x + ct * tha >= rhs)
-        end
-        JuMP.@objective(m, Min, tha)
-        JuMP.optimize!(m)
-        @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-        JuMP.value(x), JuMP.value(tha)
+
+function Q_hat(t::Int, trial_xtm1::Float64)::Float64 # revised 20/12
+    t == T + 1 && return 0. # the dummy function with value 0
+    @assert 2 <= t <= T
+    @assert boundDict["xl"][t-1] <= trial_xtm1 <= boundDict["xu"][t-1] 
+    m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
+    JuMP.set_silent(m) # actually we can solve directly, but for convenience we import Gurobi
+    JuMP.@variable(m, boundDict["hatQl"][t] <= tha <= boundDict["hatQu"][t])
+    lD = hatQ[t]
+    for (cx, ct, rhs, old) in zip(lD["cx"], lD["ct"], lD["rhs"], lD["is_inferior"]) # this is the cutting plane model of Q_t(x[t-1])
+        old || JuMP.@constraint(m, cx * trial_xtm1 + ct * tha >= rhs)
     end
-    function gen_trial_xtm1(t::Int)
-        trial_xtm1, lb_Q_t = Q_hat_kernel(t, false, NaN)
-    end
-    function Q_hat(t::Int, input_xm1::Float64) # from gen_trial_xtm1
-        val_Q_hat_at_input_xm1 = Q_hat_kernel(t, true, input_xm1)[2]
-    end
+    JuMP.@objective(m, Min, tha)
+    JuMP.optimize!(m)
+    @assert JuMP.termination_status(m) == JuMP.OPTIMAL
+    return JuMP.value(tha)
 end
+function gen_trial_xtm1(t::Int, x_input_tm2::Float64)
+    @assert 2 <= t <= T+1 # obj = f_1(x1) + Q_2(x1) when t = 2 ;; obj = f_T(xT) when t = T+1
+    @assert boundDict["xl"][t-2] <= x_input_tm2 <= boundDict["xu"][t-2]
+    m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
+    JuMP.set_silent(m)
+    JuMP.@variable(m, boundDict["hatQl"][t] <= tha <= boundDict["hatQu"][t])
+    JuMP.@variable(m, boundDict["xl"][t-1] <= x_tm1 <= boundDict["xu"][t-1])
+    JuMP.@variable(m, boundDict["fl"][t-1] <= f_tm1 <= boundDict["fu"][t-1])
+    JuMP.@variable(m, a >= 0.)
+    JuMP.@variable(m, cb_tm1, Bin)
+    JuMP.@constraint(m, a >=  x_tm1)
+    JuMP.@constraint(m, a >= -x_tm1)
+    JuMP.@constraint(m, f_tm1 == beta^(t-2) * a)
+    JuMP.@constraint(m, x_tm1 == x_input_tm2 + (2. * cb_tm1 - 1.) + xi[t-1])
+    lD = hatQ[t]
+    for (cx, ct, rhs, old) in zip(lD["cx"], lD["ct"], lD["rhs"], lD["is_inferior"])
+        old || JuMP.@constraint(m, cx * x_tm1 + ct * tha >= rhs)
+    end
+    JuMP.@objective(m, Min, f_tm1 + tha)
+    JuMP.optimize!(m)
+    @assert JuMP.termination_status(m) == JuMP.OPTIMAL
+    JuMP.value(x_tm1), JuMP.value(f_tm1), JuMP.value(tha), JuMP.objective_value(m) # those in train_trials_record
+end
+
 if true #【Functions】algorithm1 and its affiliates, t in 2:T
     function Q_ast(t, pai, pai0) # see (12)
         m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
@@ -165,7 +193,7 @@ if true #【Functions】algorithm1 and its affiliates, t in 2:T
         lb = val - pai * x_hat - pai0 * tha_hat # obj value corr to the feas. solu just derived
         return ub, lb, pai, pai0, val, c_pai, c_pai0
     end
-    function algorithm1(t, ite, x_hat, tha_hat, delta = 0.9) # generate a (13) cut for Q_t(⋅) that cut off trial (x̂t-1, curr_hat_Q_t(x̂t-1))
+    function algorithm1(ite, t, x_hat, tha_hat, delta = 0.9) # generate a (13) cut for Q_t(⋅) that cut off trial (x̂t-1, curr_hat_Q_t(x̂t-1))
         @assert 2 <= t <= T
         icbt = zeros(4) # [1]=lb  [2]=pai  [3]=pai0 [4]=Q^ast_t(pai, pai0)  All incumbent 
         ub, icbt[1], icbt[2], icbt[3], icbt[4], c_pai, c_pai0 = algo1_ini(t, x_hat, tha_hat) # (3.8263752000000006, 0.0, 0.0, 1.0, 1.4450970583895657, 0.0)
@@ -226,79 +254,57 @@ if true #【Functions】algorithm1 and its affiliates, t in 2:T
     end
 end
 
-function fwd(t, x_tm1) # only the final stage Q is precise, because it involves no trailing term
-    @assert 1 <= t <= T
-    # example: t = 7, input = x_tm1 = x[6]
-    # According to the input x[6], we `gen` an `ub` corr to the feasible policy according to f_{7} and CURRENT Q_hat_{8}  
-    m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
-    JuMP.set_silent(m)
-    JuMP.@variable(m, cb, Bin)
-    JuMP.@variable(m, abs_x >= 0.) # can only used in Min-obj
-    JuMP.@variable(m, boundDict["xl"][t] <= x <= boundDict["xu"][t]) # x[t]
-    JuMP.@variable(m, boundDict["fl"][t] <= f_t <= boundDict["fu"][t])
-    JuMP.@variable(m, boundDict["hatQl"][t+1] <= tha <= boundDict["hatQu"][t+1]) # cutting plane model of Q_{t+1}(x[t])
-    JuMP.@constraint(m, abs_x >= x)
-    JuMP.@constraint(m, abs_x >= -x)
-    JuMP.@constraint(m, x == x_tm1 + (2. * cb - 1.) + xi[t])
-    JuMP.@constraint(m, f_t == beta^(t-1) * abs_x)
-    lD = hatQ[t+1]
-    for (cx, ct, rhs, old) in zip(lD["cx"], lD["ct"], lD["rhs"], lD["is_inferior"])
-        old || JuMP.@constraint(m, cx * x + ct * tha >= rhs)
+function train(t::Int = t, x_tm2_input::Float64 = x0) # to solve the MSP problem
+    if 2 < t <= T # welcome info
+        @assert boundDict["xl"][t-2] <= x_tm2_input <= boundDict["xu"][t-2]
+        @warn "study MSP partially: the first decision is x_t where" t=t-1 stages_of_x_need_decision=T-(t-2)
+    elseif t == 2
+        @info "MSP start training with" x_0=x_tm2_input stages_of_x_need_decision=T
+    else
+        error("argument t is invalid!")
     end
-    JuMP.@objective(m, Min, f_t + tha)
-    JuMP.optimize!(m)
-    if JuMP.termination_status(m) != JuMP.OPTIMAL
-        @error "in fwd()" JuMP.termination_status(m) t x_tm1
-        error("fwd(): stop!->")
-    end
-    # [1] solution of this stage as trial for the next
-    # [2] immediate cost of this stage,
-    # [3] quasi upper bound, because the trailing term is a surrogate. It's precise when t == T though.
-    JuMP.value(x), JuMP.value(f_t), JuMP.objective_value(m)
-end
-function train(t::Int) # train a cutting plane model for Q_t
-    @assert 2 <= t <= T
-    ite, ub = 1, boundDict["hatQu"][t] # initial bound of Q_t for a reference only
+    ite, ub = 1, boundDict["fu"][t-1] + boundDict["hatQu"][t] # initial bound of Q_t for a reference only
     if ite == 1 # initialization
-        x_sm1_trial, lb_Q_t = gen_trial_xtm1(t) # x6_trial, lb_Q_7
-        lb_Q_t >= ub - 1e-6 && error("Convergent Without Training! Please Check If the Model is Already Well Trained!")
-        push!(bounds_vec, (ite, lb_Q_t, ub)) # record the Vital Info 
-        for s in t:T # forward pass
-            push!(train_trials_record[s]["ite"], ite)
-            push!(train_trials_record[s]["x_trial"], x_sm1_trial)
-            push!(train_trials_record[s]["t_trial"], lb_Q_t)
-            x_sm1_trial, ft_vec[s], qub_vec[s] = fwd(s, x_sm1_trial) # notice we store the return at LHS
-        end
-        ub = sum(ft_vec)
-        for s in T:-1:t
-            x_sm1_trial = train_trials_record[s]["x_trial"][ite]
-            cut_is_gened = algorithm1(s, ite, x_sm1_trial, Q_hat(s, x_sm1_trial)) # use an ad hoc theta_trial
-            if !cut_is_gened
-                error("cut not gened at the 1st iterate of training, check if the model is already saturated!")
+        x_tm1_trial = x_tm2_input # for the sake of tidiness
+        for s in t:T+1
+            x_tm1_trial, f_tm1_induced, tha_trial, lb = gen_trial_xtm1(s, x_tm1_trial) # ignite the fwd process
+            if s == t && lb >= ub - 1e-6
+                @warn "😅 Gap closed at the First iterate!" ite ub lb x1_solu=x_tm1_trial
+                return x_sm1_trial, ub
             end
+            push!(train_trials_record[s]["ite"], ite)
+            push!(train_trials_record[s]["x_tm1_trial"], x_tm1_trial)
+            push!(train_trials_record[s]["f_tm1_induced"], f_tm1_induced)
+            push!(train_trials_record[s]["tha_trial"], tha_trial)
+            push!(train_trials_record[s]["lb"], lb)
+        end
+        ub = sum(train_trials_record[s]["f_tm1_induced"][ite] for s in t:T+1) # update directly to save effort
+        for s in T:-1:t # x1 - Q2 ;; x8 - Q9 ;; Q9 dummy, thus bwd process is one stage less than fwd [notice]
+            x_sm1_trial = train_trials_record[s]["x_tm1_trial"][ite]
+            algorithm1(ite, s, x_sm1_trial, Q_hat(s, x_sm1_trial)) || @warn "At ite = 1, bwd phase, there is at least one Q_hat not updated."
         end
     end
-    for ite in 2:typemax(Int)
-        x_sm1_trial, lb_Q_t = gen_trial_xtm1(t) # x6_trial, lb_Q_7
-        if lb_Q_t >= ub - 1e-6 # This is almost IMPOSSIBLE because the value function of MILP is NON-CONVEX
-            @info "😊 Gap for Q_t() is closed!" ite lb=lb_Q_t ub
-            return argmin_Q_t = x_sm1_trial
-        else # conclusion of this ite
-            @info ">>> Vital Info in Main Iterate" ite lb=lb_Q_t ub
-        end
-        push!(bounds_vec, (ite, lb_Q_t, ub)) # record the Vital Info 
-        @info " ⊗ Start fwd pass with current hat_Q's" x_input=x_sm1_trial  x_input_ind=t-1 thus_t=t lb_Q_t
-        # ----- Above are the easy part -----
-        if !any([ite-1 in hatQ[s]["gen_in_ite"] for s in t:T]) # the last ite doesn't generate a cut at any stage
-            @warn "Quit training process due to saturation of cutting planes"
-            return current_best_solution = x_sm1_trial
-        end
-        recur_xtrial_stages = Int[]
-        corr_cut_ind_vec_vec = Vector{Int64}[]
-        for s in t:T # forward pass
-            old_ite_ind_vec = findall(x -> x < 1e-5, abs.(train_trials_record[s]["x_trial"] .- x_sm1_trial))
-            if !isempty(old_ite_ind_vec) # the involved part 
-                if !all(train_trials_record[s]["t_trial"][old_ite_ind_vec] .< lb_Q_t)
+    for ite in 2:typemax(Int) # Main Iterate
+        x_tm1_trial = x_tm2_input # for the sake of tidiness
+        recur_xtrial_stages, corr_cut_ind_vec_vec = Int[], Vector{Int64}[] # recurrence check related
+        x_close_tol, value_improve_tol = 1e-5, 1e-6 # recurrence check related
+        for s in t:T+1
+            x_tm1_trial, f_tm1_induced, tha_trial, lb = gen_trial_xtm1(s, x_tm1_trial) # ignite the fwd process
+            if s == t # summary session (for the last ite)
+                if lb >= ub - 1e-6
+                    @info "😊 Gap closed." ite ub lb x1_solu=x_tm1_trial
+                    return x_sm1_trial, ub
+                elseif !any([ite-1 in hatQ[stage]["gen_in_ite"] for stage in t:T]) # the last ite doesn't generate a cut for any Q_t
+                    @warn "Quit training process due to saturation of cutting planes" ite ub lb gap="$((ub-lb)/ub*100)%" x1_candidate=x_tm1_trial
+                    return x_tm1_trial, ub
+                else
+                    @info ">>>" ite ub lb
+                end
+            end
+            old_ite_ind_vec = findall(x -> x < x_close_tol, abs.(train_trials_record[s]["x_tm1_trial"] .- x_tm1_trial))
+            if !isempty(old_ite_ind_vec) # the involved part: recurrence of x_tm1_trial
+                if !all( train_trials_record[s]["tha_trial"][old_ite_ind_vec] .<= tha_trial + value_improve_tol )
+                    @error "see" ite s x_tm1_trial tha_trial train_trials_record[s]["tha_trial"]
                     error("fwd: recurrence of inferior trials, please check!")
                 else # mark the old (all inferior) cuts at stage s
                     cut_ind_vec = Int[]
@@ -306,25 +312,24 @@ function train(t::Int) # train a cutting plane model for Q_t
                         tmp = findall(x -> x == old_ite, hatQ[s]["gen_in_ite"]) # tmp = Int[] or [i::Int]
                         cut_ind_vec = [cut_ind_vec; tmp]
                     end
-                    push!(corr_cut_ind_vec_vec, cut_ind_vec)
                     push!(recur_xtrial_stages, s)
+                    push!(corr_cut_ind_vec_vec, cut_ind_vec)
                 end
             end
             push!(train_trials_record[s]["ite"], ite)
-            push!(train_trials_record[s]["x_trial"], x_sm1_trial)
-            push!(train_trials_record[s]["t_trial"], lb_Q_t)
-            x_sm1_trial, ft_vec[s], qub_vec[s] = fwd(s, x_sm1_trial) # notice we store the return at LHS
-            # @info "fwd: after 1 step," x_ind=s  x_solu=x_sm1_trial  generates_ft=ft_vec[s]  aug_quasi_cost=qub_vec[s]
+            push!(train_trials_record[s]["x_tm1_trial"], x_tm1_trial)
+            push!(train_trials_record[s]["f_tm1_induced"], f_tm1_induced)
+            push!(train_trials_record[s]["tha_trial"], tha_trial)
+            push!(train_trials_record[s]["lb"], lb)
         end
-        ub = sum(ft_vec) # We miss the process of comparation with the best ub so far
+        ub = sum(train_trials_record[s]["f_tm1_induced"][ite] for s in t:T+1) # update directly to save effort
         @info " ♠ Start bwd pass"
         for s in T:-1:t
-            x_sm1_trial = train_trials_record[s]["x_trial"][ite]
-            cut_is_gened = algorithm1(s, ite, x_sm1_trial, Q_hat(s, x_sm1_trial)) # use an ad hoc theta_trial
+            x_sm1_trial = train_trials_record[s]["x_tm1_trial"][ite]
+            cut_is_gened = algorithm1(ite, s, x_sm1_trial, Q_hat(s, x_sm1_trial)) # use an ad hoc theta_trial
             if s in recur_xtrial_stages && cut_is_gened
                 hatQ[s]["is_inferior"][corr_cut_ind_vec_vec[findall(x -> x == s, recur_xtrial_stages)[1]]] .= true # ensures that: from now on we can discard inferior cuts
             end
-            # @info "bwd: end of ite at" s current_lb=gen_trial_xtm1(s)[2]   compared_ub=qub_vec[s]
         end
     end
 end
@@ -334,52 +339,52 @@ if true # Data_Main
     global_logger(ConsoleLogger(Info))
     # global_logger(ConsoleLogger(Warn))
     GRB_ENV = Gurobi.Env() # Gurobi can deal with Quad_NL and MILP, thus Gurobi is competent for these 2 cases
+    xi = Float64[1.878476717166122, 1.8552903302256576, -0.5258435328220221, -2.0016417222487712, -2.4571367609213413, -1.977854597034034, -0.1867543863247132, -0.4450970583895657]
     T, beta = 8, .9
-    xi = [1.878476717166122, 1.8552903302256576, -0.5258435328220221, -2.0016417222487712, -2.4571367609213413, -1.977854597034034, -0.1867543863247132, -0.4450970583895657]
+    @assert length(xi) == T
+    # --------------- try different variaties -(not realized yet!)--------------
+    x0 = 2.0 # default 2.0
+    t = 2 # default 2
+    # --------------- try different variaties ---------------
+    hatQ_range = 2:T+1 # we do not model Q_1 because its input is fixed at x0, thus Q_1 is a value v_prim. Q_{T+1} is dummy.
     boundDict = Dict(
         "xl" => OffsetVector([0. for _ in 0:T], 0:T),
         "xu" => OffsetVector([0. for _ in 0:T], 0:T),
         "fl" => [0. for _ in 1:T], # real zeros
         "fu" => [0. for _ in 1:T],
-        "hatQl"=> OffsetVector([0. for _ in 2:T+1], 2:T+1), # real zeros; the end is fixed to 0.
-        "hatQu"=> OffsetVector([0. for _ in 2:T+1], 2:T+1) # the end is fixed to 0.
+        "hatQl"=> OffsetVector([0. for _ in hatQ_range], hatQ_range), # real zeros; the end is fixed to 0.
+        "hatQu"=> OffsetVector([0. for _ in hatQ_range], hatQ_range) # the end is fixed to 0.
     )
-    boundDict["xl"][0], boundDict["xu"][0] = -4., 4.
-    x0 = 2. # the default input state of the MS_SP
-    @assert boundDict["xl"][0] <= x0 <= boundDict["xu"][0] 
-    for s in 1:T
-        boundDict["xl"][s] = get_x_bound(s, false)
-        boundDict["xu"][s] = get_x_bound(s, true)
-    end
-    boundDict["fu"] .= [beta^(s-1) * max(abs(boundDict["xl"][s]), abs(boundDict["xu"][s])) for s in 1:T]
-    for s in 2:T
-        boundDict["hatQu"][s] = sum(boundDict["fu"][i] for i in s:T)
-    end
+    fill_boundDict(T, x0)
     hatQ = OffsetVector([Dict(
-        "cut_id" => Int[], # inside manager
-        "gen_in_ite" => Int[], # this cut is generated from the i'th iterate
+        "cut_id" => Int[], # inside manager, linear currently
+        "gen_in_ite" => Int[], # this cut is generated from the i'th ite
         "x_trial" => Float64[],
         "t_trial" => Float64[],
         "cx" => Float64[],
         "ct" => Float64[],
         "rhs" => Float64[],
         "is_inferior" => Bool[] # the cut is deemed inferior compared with a later-generated one
-        ) for t in 2:T+1], 2:T+1) # cutting plane model for Q[2:T], while the end is dummy and kept empty
-    hatQast = OffsetVector([Dict("cp" => Float64[],"cp0" => Float64[]) for _ in 2:T], 2:T) # storing affine coeffs for Q*(π, π0)
+        ) for _ in hatQ_range], hatQ_range) # cutting plane model for Q[2:T], while the end is dummy and kept empty
+    hatQast = OffsetVector([Dict("cp" => Float64[],"cp0" => Float64[]) for _ in t:T], t:T) # storing affine coeffs for Q*(π, π0), since it doesn't need dummy at end, it's end is T, compared with T+1 in hatQ
+    train_trials_record = OffsetVector([Dict(
+        "ite" => Int[], # linear currently
+        "x_tm1_trial" => Float64[],
+        "f_tm1_induced" => Float64[],
+        "tha_trial" => Float64[],
+        "lb" => Float64[], # "f_tm1_indecud" + "tha_trial"
+        ) for _ in hatQ_range], hatQ_range)
 end
 
-t = 5 # t in 2:T <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Test input of this program
-train_trials_record = OffsetVector([Dict(
-    "ite" => Int[],
-    "x_trial" => Float64[],
-    "t_trial" => Float64[]
-    ) for _ in t:T], t:T)
-ft_vec = OffsetVector([0. for _ in t:T], t:T) # immediate costs
-qub_vec = OffsetVector([0. for _ in t:T], t:T) # augmented costs corr to the immediate costs
-bounds_vec = Tuple{Int, Float64, Float64}[] # the crucial indication of the training process
-x_tm1_opt = train(t) # the best solution given by our method
+x_tm1_opt, ub = train(t, x0) # to solve the MSP problem
 
-@info "Some references" trained_value=Q(t, x_tm1_opt) theoretical_value=min_Q(t)
+if true # concluding session
+    eval_this_solu_at_Q = Q(t-1, x0)
+    diff_ub_between_ans___should_small = ub - eval_this_solu_at_Q
+    theoretical_value = min_Q(t-1)
+    diff_ub_between_ans___ie_the_abs_err = ub - theoretical_value
+    @info "Some references from the brute-force solution" ub eval_this_solu_at_Q diff_ub_between_ans___should_small theoretical_value diff_ub_between_ans___ie_the_abs_err
+end
 
 if false #【Plots】
     function L_cut(lD::Dict, ind::Int)::Function  # distil the cut function 
