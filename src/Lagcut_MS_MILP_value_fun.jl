@@ -14,9 +14,6 @@ function JumpModel(env = GRB_ENV)
     JuMP.set_silent(m)
     return m
 end
-function get_solu_chain(train_trials_record)
-    [train_trials_record[i]["x_dm1_trial"][end] for i in eachindex(train_trials_record)]
-end
 function get_x_d_decision_bound(boundDict, d::Int, t::Int, upper::Bool)
     d == t-2 && error("x[d] is given by parameters")
     @assert d in t-1:T # from the first decision to the last decision
@@ -35,6 +32,7 @@ function get_x_d_decision_bound(boundDict, d::Int, t::Int, upper::Bool)
     end
     JuMP.optimize!(m)
     @assert JuMP.termination_status(m) == JuMP.OPTIMAL
+    @assert abs(JuMP.value(x[d])) <= 300.
     JuMP.value(x[d])
 end
 function _Q_kernel(d, arg_x_dm1, fix_decision_x_d::Bool, fixed_x_d_value)
@@ -266,57 +264,51 @@ function getData(num_decisions, input_fixed_parameter)
     ) for _ in t:T+1], t:T+1)
     return t, boundDict, hatQ, hatQast, train_trials_record
 end
+function record_train_record(d, ite, x_dm1_trial, f_dm1_induced, tha_trial, lb)
+    push!(train_trials_record[d]["ite"], ite)
+    push!(train_trials_record[d]["x_dm1_trial"], x_dm1_trial)
+    push!(train_trials_record[d]["f_dm1_induced"], f_dm1_induced)
+    push!(train_trials_record[d]["tha_trial"], tha_trial)
+    push!(train_trials_record[d]["lb"], lb)
+end
 function train(u, x_input_um2)
     ite, ub = 1, boundDict["fu"][u-1] + boundDict["hatQu"][u] # initial bound of Q_t for a reference only
-    if ite == 1 # √ √ √ initialization
+    if ite == 1
         x_dm1_trial = x_input_um2 # to ignite
         for d in u:T+1
-            x_dm1_trial, f_dm1_induced, tha_trial, lb = idq(d, x_dm1_trial) # ignite
-            if d == u && lb >= ub - 1e-6
-                @warn "😅 Gap closed at the First iterate!" ite ub lb solution=x_dm1_trial
-                return 1, x_dm1_trial, ub, NaN
-            end
-            push!(train_trials_record[d]["ite"], ite)
-            push!(train_trials_record[d]["x_dm1_trial"], x_dm1_trial)
-            push!(train_trials_record[d]["f_dm1_induced"], f_dm1_induced)
-            push!(train_trials_record[d]["tha_trial"], tha_trial)
-            push!(train_trials_record[d]["lb"], lb)
+            x_dm1_trial, f_dm1_induced, tha_trial, lb = idq(d, x_dm1_trial) # ★ fwd
+            record_train_record(d, ite, x_dm1_trial, f_dm1_induced, tha_trial, lb)
         end
-        ub = sum(train_trials_record[d]["f_dm1_induced"][ite] for d in u:T+1)
-        for d in T:-1:u
+        bv = OffsetVector([false for _ in u:T], u:T)
+        for d in reverse(u:T)
             x_dm1_trial = train_trials_record[d]["x_dm1_trial"][ite]
-            algorithm1(ite, d, x_dm1_trial, Q_hat(d, x_dm1_trial)) || @warn "At ite = 1, bwd phase, there is at least one Q_hat not updated."
+            algorithm1(ite, d, x_dm1_trial, Q_hat(d, x_dm1_trial)) && (bv[d] = true)
         end
     end
     x_close_TOL, value_TOL = 1e-5, 1e-6
+    gap_prompt = "▶ "
     for ite in 2:typemax(Int) # Main Iterate
         x_dm1_trial = x_input_um2 # to ignate
         for d in u:T+1
-            x_dm1_trial, f_dm1_induced, tha_trial, lb = idq(d, x_dm1_trial) # ignite
-            if d == u # summary / exit session (for the last ite)
-                if lb >= ub - 1e-6
-                    @info "😊 Gap closed." ite ub lb solution=x_dm1_trial
-                    return 2, x_dm1_trial, ub, NaN
-                elseif !any([ite-1 in hatQ[d]["gen_in_ite"] for d in u:T]) # the last ite doesn'u generate a cut for any Q_t
-                    @warn "Quit training process due to saturation of cutting planes" ite ub lb gap="$((ub-lb)/ub*100)%" candidate_solution=x_dm1_trial
-                    return 3, x_dm1_trial, ub, (ub-lb)/ub
+            if d == u
+                if any(bv) # at least at one stage is a cut gened
+                    ub = sum(train_trials_record[stage]["f_dm1_induced"][ite-1] for stage in u:T+1)
                 else
-                    @info "▶ ▶ ▶ ite = $ite" ub lb
+                    @info "🙂 exit training due to saturation of cuts"
+                    return nothing
                 end
             end
-            push!(train_trials_record[d]["ite"], ite)
-            push!(train_trials_record[d]["x_dm1_trial"], x_dm1_trial)
-            push!(train_trials_record[d]["f_dm1_induced"], f_dm1_induced)
-            push!(train_trials_record[d]["tha_trial"], tha_trial)
-            push!(train_trials_record[d]["lb"], lb)
+            x_dm1_trial, f_dm1_induced, tha_trial, lb = idq(d, x_dm1_trial) # ★ fwd
+            d == u && lb > ub - value_TOL && length(gap_prompt) <= 2 && (gap_prompt ^= 3) # change prompt to indicate that the gap is closed
+            d == u && @info  gap_prompt * " ite = $(ite-1) " ub lb
+            record_train_record(d, ite, x_dm1_trial, f_dm1_induced, tha_trial, lb)
         end
-        ub = sum(train_trials_record[d]["f_dm1_induced"][ite] for d in u:T+1) # update directly to save effort
-        # @info " ♠ Start bwd pass"
-        for d in T:-1:u
+        bv .= false
+        for d in reverse(u:T)
             x_dm1_trial = train_trials_record[d]["x_dm1_trial"][ite]
             t_trial = Q_hat(d, x_dm1_trial)
-            cut_is_gened = algorithm1(ite, d, x_dm1_trial, t_trial) # use an ad hoc theta_trial
-            if cut_is_gened
+            algorithm1(ite, d, x_dm1_trial, t_trial) && (bv[d] = true)
+            if bv[d] # cut is gened
                 bitvec2 = hatQ[d]["t_trial"] .< t_trial - value_TOL
                 @assert bitvec2[end] == false # because @assert hatQ[d]["t_trial"][end] == t_trial
                 bitvec = abs.( hatQ[d]["x_trial"] .- x_dm1_trial ) .< x_close_TOL
@@ -325,56 +317,113 @@ function train(u, x_input_um2)
         end
     end
 end
+function cut_viewer(s::Int)
+    println("cx", "\t\t", "ct", "\t\t", "rhs")
+    cnt = 0
+    for (cx, ct, rhs, old) in zip(hatQ[s]["cx"], hatQ[s]["ct"], hatQ[s]["rhs"], hatQ[s]["is_inferior"])
+        old || (println(round(cx; digits=2),"\t\t",round(ct; digits=2),"\t\t",round(rhs; digits=2)); cnt += 1)
+    end
+    println("hatQ_$s: $cnt")
+    return cnt
+end
+function cut_viewer()
+    cnt = 0
+    for i in t:T
+        cnt += cut_viewer(i)
+        println()
+    end
+    println("■ cut_num: $cnt")
+end
+function get_solu_chain(train_trials_record)
+    [train_trials_record[i]["x_dm1_trial"][end] for i in eachindex(train_trials_record)]
+end
+function solution_viewer()
+    tmp = get_solu_chain(train_trials_record)
+    for i in eachindex(tmp)
+        println("x[$(i-1)]:\t", tmp[i])
+    end
+end
+function calculate_gap(ub, lb)
+    abs(ub - lb) / abs(ub) # |objbound - objval| / |objval|
+end
 
-# we should give an `x0` for a formal MSP proposition
-# but for generality we use the name `x_input_tm2`, if we want `x0`, we can just set `t = 2`
-# x_input_tm2 = 2. # that induces a `v_prim`, which is the theoretical opt value of the MSP problem, it can be solved by a brute force one-large-scale deterministic programming 
-# an MSP problem is fully decided by `x_input_tm2` and `xi`
-# ■ v_prim = Q(t-1, x_input_tm2)
 # T is the index of Q such that Q_T is the last formal value function, and Q_{T+1} is the ending dummy ≡ 0.
 # 2 is the index of Q such that Q_2 is the first value function. We do not study Q_1 although it exists as a const Q_1(x_0) = `v_prim` where x_0 is `x_input_tm2`
-# t is the index of Q such that 2 <= t, and it decides the DATA STRUCTURE we generate: x_{t-1} is the first formal decision that we store its bounds, we also store x_{t-2} as a dummy decision whose bounds are dummy and fixed to `x_input_tm2`
-# u is the index of Q such that 2 <= t <= u, and it decides that x_{u-1} is the first formal decision that we decide in the TRAINING PROCESS train(u, x_input_um2)
-# X_T is ALWAYS the last formal decision variable, both in data structure generation and trainning
-# ■ t in 2:T or t == T+1
-# ■ u in t:T or u == T+1
-# example: t = 2, T = 3
+# t is the index of Q such that 2 <= t, and it decides the trainning process
+# X_T is ALWAYS the last formal decision variable
+# ¶ ¶ ¶  t in 2:T (an MSP, especially t=T => 2-stage-programming) or t == T+1 (a deterministic programming)
+# example: t = 2, T = 3 (a 3-stage-programming)
 #         Q1(fixed) =            Q2 =               Q3 =                Q4(dummy)
 # x0(fix) ->        xi[1] x1            xi[2] x2            xi[3] x3
 
 
-
+# ▶ basic settings
 global_logger(ConsoleLogger(Info))
 GRB_ENV = Gurobi.Env()
 beta = .9
 xi = Float64[-4.059602000926438, 6.460695538605968, 3.4660403334855836, -4.019347551700105, 0.2318883638616276, 0.7330941144225198, -3.161166574781623, 1.5241577283751582, -3.583872523402287, 4.028527482440921, -2.2545896848589253, 6.328237145802639, 1.1858619742681293, 4.389687037306254, 0.1230529065657695, -3.0406688715249794, 6.42923699891918, -3.905337771397673, 1.339902685987914, 0.12369683624259231, 0.64663272549571, 3.2090725980247417, 2.728039391229948, -3.786741752921084]
 T = length(xi)
+# ◀ basic settings
 
-check_vec = []
+test_vec, test_val_vec = [], []
 
-num_decisions = T # you choose before trainning
-input_fixed_parameter = 2.0 # this is the base for bound tightening
+# ▶ input region
+num_decisions           = T # you choose before trainning
+input_fixed_parameter   = 2. # this is the base for bound tightening
+# ◀ input region
 
+
+num_decisions, input_fixed_parameter = 18, 0.8127687977491558
+num_decisions, input_fixed_parameter = 17, -1.348397777032467
+
+
+
+
+# ▶ training
 t, boundDict, hatQ, hatQast, train_trials_record = getData(num_decisions, input_fixed_parameter)
-flag, x_tm1_opt, ub, gap = train(t, input_fixed_parameter)
-solu_chain = get_solu_chain(train_trials_record)
-push!(check_vec, solu_chain) # store
+train(t, input_fixed_parameter) # the last iterate that is recorded
+ite = train_trials_record[begin]["ite"][end]
+ub  = sum(train_trials_record[stage]["f_dm1_induced"][ite] for stage in t:T+1)
+lb  = train_trials_record[begin]["lb"][end]
+gap = calculate_gap(ub, lb)
+solution_chain = get_solu_chain(train_trials_record)
+solution = solution_chain[begin]
+immediate_cost = f_d(t-1, solution)
+residue_cost = ub - immediate_cost
+# ◀ training
 
+# testing
+# push!(test_vec, solution_chain) # store
+push!(test_val_vec, residue_cost) # store
 while num_decisions >= 2
     num_decisions -= 1
-    input_fixed_parameter = solu_chain[begin]
-
+    input_fixed_parameter = solution
+    # ▶ training
     t, boundDict, hatQ, hatQast, train_trials_record = getData(num_decisions, input_fixed_parameter)
-    flag, x_tm1_opt, ub, gap = train(t, input_fixed_parameter)
-    solu_chain = get_solu_chain(train_trials_record)
-    println("Ite [$num_decisions]")
-    println(solu_chain)
-    push!(check_vec, solu_chain) # store
-
-    tmp = popfirst!(check_vec) # recover old
-
-    solu_chain, tmp = solu_chain[begin:end], tmp[begin+1:end]
-    @assert isapprox(solu_chain, tmp; atol = 1e-4, norm = x -> LinearAlgebra.norm(x, Inf))
+    train(t, input_fixed_parameter) # the last iterate that is recorded
+    ite = train_trials_record[begin]["ite"][end]
+    ub  = sum(train_trials_record[stage]["f_dm1_induced"][ite] for stage in t:T+1)
+    lb  = train_trials_record[begin]["lb"][end]
+    gap = calculate_gap(ub, lb)
+    solution_chain = get_solu_chain(train_trials_record)
+    solution = solution_chain[begin]
+    immediate_cost = f_d(t-1, solution)
+    residue_cost = ub - immediate_cost
+    # ◀ training
+    # push!(test_vec, solution_chain) # store
+    push!(test_val_vec, residue_cost) # store
+    # tmp = popfirst!(test_vec) # recover old
+    # solution_chain, tmp = solution_chain[begin:end], tmp[begin+1:end]
+    # if !isapprox(solution_chain, tmp; atol = 1e-5, norm = x -> LinearAlgebra.norm(x, Inf))
+        # error("t = $t")
+    # end
+    residue_last = popfirst!(test_val_vec)
+    if !isapprox(residue_last, ub; atol = 1e-6)
+        @error "cmp" residue_last, ub, num_decisions, t, input_fixed_parameter
+        error("wrong!!!!")
+    else
+        println("fuck: $input_fixed_parameter")
+    end
 end
 
 
@@ -413,28 +462,6 @@ if false #【Plots】
         text!(ax, xdm1[1], val[1]; text = "cut$c")
     end
 end
-
-if false # helper functions
-    function cut_viewer(s::Int)
-        for (cx, ct, rhs, old) in zip(hatQ[s]["cx"], hatQ[s]["ct"], hatQ[s]["rhs"], hatQ[s]["is_inferior"])
-            old || println(cx," ",ct," ",rhs)
-        end
-    end
-end
-
-
-
-
-
-
-
-
-
-
-
-[-0.8242400486573089, -3.4081125720595953, -0.3795850896186739, -3.634174774477599, 1.6940623713250398, 1.8799243455931691, 5.2696113828994235, 4.392664289465193, 0.3519954179402136, 5.781232416859393, 0.8758946454617202, 1.2157973314496342, 0.3394941676922265, -0.01387310681206344, 2.195199491212678, 3.923238882442626, -0.8635028704784578]
-[-1.348397777032467, -0.8242400486573089, -5.408112572059595, -2.379585089618674, -5.634174774477599, -0.3059376286749602, -0.12007565440683088, 3.2696113828994235, 2.392664289465193, -1.6480045820597864, 3.7812324168593934, -1.1241053545382798, -0.7842026685503658, 0.3394941676922265, -0.01387310681206344, 2.195199491212678, 3.923238882442626, -0.8635028704784578]
-
 
 
 
