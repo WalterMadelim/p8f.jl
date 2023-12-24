@@ -48,7 +48,7 @@ function Q(y)::Float64
 end
 function Q_ast(pai, pai0)
     m = JumpModel()
-    JuMP.@variable(m, 0. <= y <= 1., Int) # Int means the cut is under approx of Int valid values only, it doesn't need to be under the LP relaxed value function
+    JuMP.@variable(m, 0. <= y <= 1.) # Int means the cut is under approx of Int valid values only, it doesn't need to be under the LP relaxed value function
     JuMP.@variable(m, 0. <= x)
     JuMP.@constraint(m, x + 15. * y >= 8.)
     JuMP.@constraint(m, 3. * x + 10. * y >= 13.)
@@ -112,7 +112,7 @@ function algorithm1(x, th, delta = .98)
             incumbent["pai0"] = pai0
             incumbent["rhs"] = rhs
         end
-        if incumbent["lb"] > (1.0 - delta) * ub + 1e-6
+        if incumbent["lb"] > (1.0 - delta) * ub + 1e-6 # it's pretty well to keep delta large, because it'll benefit sufficient exploring, there's no reason to stick to only one point
             incumbent["cut_gened"] = true
             return incumbent
         end
@@ -123,8 +123,8 @@ f = Figure();
 axs = Axis.([f[i...] for i in Iterators.product([1,2,3],[1,2,3])]);
 
 y = range(0., 1.; length = 500);
-# lines!(axs[1], y, Q.(y))
-lines!(axs[1], y, y .+ Q.(y))
+lines!(axs[1], y, Q.(y)) # relax int, draw this and its cut, you'll get what you want to see.
+# lines!(axs[1], y, y .+ Q.(y))
 
 m = JumpModel() # the master problem of the 1st stage
 JuMP.@variable(m, 0. <= y <= 1.) # the 1st stage decision (vector later)
