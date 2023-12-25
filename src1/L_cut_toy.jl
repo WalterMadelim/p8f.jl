@@ -9,69 +9,60 @@ function JumpModel(env = GRB_ENV)
     JuMP.set_silent(m)
     return m
 end
-function cut_fun(x, id)
+function cut_fun(hatQ, x, id)
     # cx * x + ct * t >= rhs
     cx, ct, rhs = hatQ["cx"][id], hatQ["ct"][id], hatQ["rhs"][id]
+    @assert ct > 0.
     1/ct * (rhs - cx * x)
 end
-
-global_logger(ConsoleLogger(Info))
-GRB_ENV = Gurobi.Env()
-Q_ast_hat = Dict( # used (only) in algorithm1, need a global initialization
-    "by_pai0"     => Float64[],
-    "by_pai"      => Float64[],
-    "cp0"         => Float64[],
-    "cp"          => Float64[],
-    "id"          => Int[]
-)
-hatQ = Dict( # filled by algorithm1
-    "is_inferior" => Bool[],
-    "cx"          => Float64[],
-    "ct"          => Float64[],
-    "rhs"         => Float64[],
-    "id"          => Int[]
-)
-
-
-function Q(y)::Float64
+function Q(x0)::Float64 # the primal value function is used in algorithm1
     m = JumpModel()
-    JuMP.@variable(m, 0. <= x)
-    JuMP.@constraint(m, x + 15. * y >= 8.)
-    JuMP.@constraint(m, 3. * x + 10. * y >= 13.)
-    JuMP.@constraint(m, x + 10. * y >= 7.)
-    JuMP.@constraint(m, 2. * x - 10. * y >= -1.)
-    JuMP.@constraint(m, 2. * x - 70. * y >= -49.)
-    JuMP.@objective(m, Min, x)
+    JuMP.@variable(m, 0. <= b1 <= 1.) # relax Int firstly
+    JuMP.@variable(m, c1)
+    JuMP.@variable(m, x1)
+    JuMP.@variable(m, a1)
+    JuMP.@variable(m, f1)
+    JuMP.@constraint(m, c1 == 2. * b1 - 1.)
+    JuMP.@constraint(m, x1 == x0 + xi1 + c1) # linking
+    JuMP.@constraint(m, a1 >=  x1)
+    JuMP.@constraint(m, a1 >= -x1)
+    JuMP.@constraint(m, f1 == beta^(1-1) * a1)
+    JuMP.@objective(m, Min, f1) # objective
     JuMP.optimize!(m)
     @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-    JuMP.value(x)
+    JuMP.objective_value(m) # this is objective value
 end
 function Q_ast(pai, pai0)
     m = JumpModel()
-    JuMP.@variable(m, 0. <= y <= 1.) # Int means the cut is under approx of Int valid values only, it doesn't need to be under the LP relaxed value function
-    JuMP.@variable(m, 0. <= x)
-    JuMP.@constraint(m, x + 15. * y >= 8.)
-    JuMP.@constraint(m, 3. * x + 10. * y >= 13.)
-    JuMP.@constraint(m, x + 10. * y >= 7.)
-    JuMP.@constraint(m, 2. * x - 10. * y >= -1.)
-    JuMP.@constraint(m, 2. * x - 70. * y >= -49.)
-    JuMP.@objective(m, Min, pai * y + pai0 * x)
+    JuMP.@variable(m, -4. <= x0 <= 5.) # Int means the cut is under approx of Int valid values only, it doesn't need to be under the LP relaxed value function
+    #--------------------------------
+    JuMP.@variable(m, 0. <= b1 <= 1.) # relax Int firstly
+    JuMP.@variable(m, c1)
+    JuMP.@variable(m, x1)
+    JuMP.@variable(m, a1)
+    JuMP.@variable(m, f1)
+    JuMP.@constraint(m, c1 == 2. * b1 - 1.)
+    JuMP.@constraint(m, x1 == x0 + xi1 + c1) # linking
+    JuMP.@constraint(m, a1 >=  x1)
+    JuMP.@constraint(m, a1 >= -x1)
+    JuMP.@constraint(m, f1 == beta^(1-1) * a1)
+    #--------------------------------
+    JuMP.@objective(m, Min, pai * x0 + pai0 * f1) # this obj doesn't have any relation to the obj of 1st stage
     JuMP.optimize!(m)
     @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-    cp = JuMP.value(y)
-    cp0 = JuMP.value(x)
+    cp = JuMP.value(x0)
+    cp0 = JuMP.value(f1)
     JuMP.objective_value(m), cp, cp0
 end
-if true # globally initialize Q_ast_hat
-    cp, cp0 = Q_ast(1., 1.) # do z_PI to initialize Q_ast_hat
-    push!(Q_ast_hat["by_pai0"    ], 1.)
-    push!(Q_ast_hat["by_pai"     ], 1.)
+function initialize_Q_ast_hat(Q_ast, Q_ast_hat, pai, pai0)
+    _, cp, cp0 = Q_ast(pai, pai0) 
+    push!(Q_ast_hat["by_pai0"    ], pai0)
+    push!(Q_ast_hat["by_pai"     ], pai)
     push!(Q_ast_hat["cp0"        ], cp0)
     push!(Q_ast_hat["cp"         ], cp)
     push!(Q_ast_hat["id"         ], length(Q_ast_hat["id"]) + 1)
 end
-
-function algorithm1(x, th, delta = .98)
+function algorithm1(Q, Q_ast, Q_ast_hat, x, th, delta = .98)
     # TODO: do not add pai_stalling check yet
     incumbent = Dict(
         "lb" => -Inf,
@@ -119,33 +110,66 @@ function algorithm1(x, th, delta = .98)
     end
 end
 
+global_logger(ConsoleLogger(Info))
+GRB_ENV = Gurobi.Env()
+
+xi1 = -2.
+beta = .9
+Q_ast_hat = Dict( # used (only) in algorithm1, need a global initialization
+    "by_pai0"     => Float64[],
+    "by_pai"      => Float64[],
+    "cp0"         => Float64[], # theta_1 the aux
+    "cp"          => Float64[], # first stage decision vector
+    "id"          => Int[]
+)
+hatQ = Dict( # filled by algorithm1
+    "is_inferior" => Bool[],
+    "cx"          => Float64[],
+    "ct"          => Float64[],
+    "rhs"         => Float64[],
+    "id"          => Int[]
+)
+
 f = Figure();
 axs = Axis.([f[i...] for i in Iterators.product([1,2,3],[1,2,3])]);
 
-y = range(0., 1.; length = 500);
-lines!(axs[1], y, Q.(y)) # relax int, draw this and its cut, you'll get what you want to see.
-# lines!(axs[1], y, y .+ Q.(y))
+initialize_Q_ast_hat(Q_ast, Q_ast_hat, -2., 1.) # ⚠️ the z_PI need to modify
 
+x0 = range(-4., 5.; length = 500);
+lines!(axs[1], x0, Q.(x0)) # relax int, draw this and its cut, you'll get what you want to see.
+lines!(axs[2], x0, -2. * x0 .+ Q.(x0)) # relax int, draw this and its cut, you'll get what you want to see.
+ite = 0
+
+
+
+
+ite += 1
+@info "beginning" ite
 m = JumpModel() # the master problem of the 1st stage
-JuMP.@variable(m, 0. <= y <= 1.) # the 1st stage decision (vector later)
+JuMP.@variable(m, -4. <= x0 <= 5.) # the 1st stage decision (vector later)
 JuMP.@variable(m, 0. <= th) # the 1st stage aux variable representing aftereffect
 for (is_inferior, cx, ct, rhs) in zip(hatQ["is_inferior"], hatQ["cx"], hatQ["ct"], hatQ["rhs"])
-    is_inferior || JuMP.@constraint(m, cx * y + ct * th >= rhs)
+    is_inferior || JuMP.@constraint(m, cx * x0 + ct * th >= rhs)
 end
-JuMP.@objective(m, Min, y + th)
+JuMP.@objective(m, Min, -2. * x0 + th) # the goal
 JuMP.optimize!(m)
 @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-y, th = JuMP.value(y), JuMP.value(th) # trial
-scatter!(axs[1], [y], [th])
+x0, th = JuMP.value(x0), JuMP.value(th) # trial
+@info "aftere generating trial" ub=-2. * x0 + Q(x0) lb = -2. * x0 + th
+scatter!(axs[1], [x0], [th])
+scatter!(axs[2], [x0], [-2. * x0 + th])
 
-algo1dict = algorithm1(y, th)
+algo1dict = algorithm1(Q, Q_ast, Q_ast_hat, x0, th)
+
 if algo1dict["cut_gened"]
     push!(hatQ["is_inferior"], false)
     push!(hatQ["cx"         ], algo1dict["pai"])
     push!(hatQ["ct"         ], algo1dict["pai0"])
     push!(hatQ["rhs"        ], algo1dict["rhs"])
     push!(hatQ["id"         ], length(hatQ["id"]) + 1)
+    @info "check this is one" ite hatQ["ct"][ite] + abs( hatQ["cx"][ite] )
 end
-y = range(0., 1.; length = 2);
-lines!(axs[1], y, cut_fun.(y, 1))
 
+x0 = range(3., 5.; length = 2);
+lines!(axs[1], x0, [cut_fun(hatQ, yp, ite) for yp in x0]) # ⚠️ notice that cut_fun is related to the Q_hat dict
+lines!(axs[2], x0, [-2. * p + cut_fun(hatQ, p, ite) for p in x0]) # ⚠️ notice that cut_fun is related to the Q_hat dict
