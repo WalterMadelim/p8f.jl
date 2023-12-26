@@ -10,6 +10,8 @@ import Distributions
 # first generate x1_trial_1, and we consider the x2-x3 2-stage decision, and we generate a x2-th2 cut
 # notice this x2-th2 cut is not valid if x1_trial changes to x1_trail_2 that is different from x1_trial_1
 # Thus the SDDP algorithm might fail !!!!
+# x0 = 5.563022746374866
+# xi = [-5.695317366271182, 6.0858364182273625, 9.64088857196068]
 
 
 # [test passed] multistage linear programming: cutting plane under relaxation trainning with pure L-cut
