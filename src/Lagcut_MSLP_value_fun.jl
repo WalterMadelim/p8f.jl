@@ -177,10 +177,12 @@ function hatQ_ini()::Dict
 end
 
 c_sv = [0, 0, 0, 0, 1.]
-num_decisions = 3 # number of formal decisions
+num_decisions = 12 # number of formal decisions
 x0 = rand(Distributions.Uniform(-10., 10.))
 xi = [rand(Distributions.Uniform(-10., 10.)) for _ in 1:num_decisions]
-@info "beginning" x0 xi
+@info "beginning" x0 "xi"
+@info xi
+
 Q_ast_hat = OffsetVector([Q_ast_ini() for _ in 2:num_decisions], 2:num_decisions)
 hatQ =      OffsetVector([hatQ_ini()  for _ in 2:num_decisions], 2:num_decisions)
 
@@ -220,7 +222,7 @@ for ite in 1:typemax(Int)
     # fwd pass above, bwd pass below
     bv = falses(num_decisions-1)
     for d in num_decisions-1:-1:1 # bwd pass, range is the reverse of fwd
-        d != num_decisions-1 && any(bv[d+1:end]) && (Q_ast_hat[d+1] = Q_ast_ini())
+        d != num_decisions-1 && bv[d+1] && (Q_ast_hat[d+1] = Q_ast_ini())
         initialize_Q2_ast_hat(
             stage_c, 
             Q2_ast,
