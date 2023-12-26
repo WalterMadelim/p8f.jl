@@ -5,6 +5,13 @@ import Gurobi
 import JuMP
 import Distributions
 
+# ⚠️ An important found in 3-stage opt:
+# x0_fixed -> x1 -> x2 -> x3
+# first generate x1_trial_1, and we consider the x2-x3 2-stage decision, and we generate a x2-th2 cut
+# notice this x2-th2 cut is not valid if x1_trial changes to x1_trail_2 that is different from x1_trial_1
+# Thus the SDDP algorithm might fail !!!!
+
+
 # [test passed] multistage linear programming: cutting plane under relaxation trainning with pure L-cut
 # cost_discount_factor in stage_c = 0.9
 # very fast up to num_decisions = 96
