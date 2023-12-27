@@ -5,8 +5,12 @@ import Gurobi
 import JuMP
 import Distributions
 
-# why is lb greater than ub ???
-# start debug with this file next time
+# if we do 3-stage optimization
+# we need branch and bound 
+# do branch on the first stage decision
+# for x1_trial_1: we have a 2-stage-problem, and we can train its lb, ub
+# for x1_trial_2: we have another 2-stage-problem, and we train its lb, ub
+# and we use branch and bound to decide the x1_trail
 # 26/12/23
 
 column(x::JuMP.VariableRef) = Gurobi.c_column(JuMP.backend(JuMP.owner_model(x)), JuMP.index(x))
@@ -160,47 +164,41 @@ function hatQ_ini()::Dict
         "id"          => Int[]
     )
 end
+function trial_finder(vec, x)
+    bv = isapprox.(x, vec; atol = 1e-5)
+    is_new = sum(bv) < .5
+    rep_ind = -1
+    if !is_new
+        indtmp = findall(x -> x==true, bv)
+        @assert length(indtmp) == 1
+        rep_ind = indtmp[1]
+    end
+    return is_new, rep_ind
+end
+function trial_to_ind(hatQ_vec, x)
+    trial_finder(hatQ_vec, x)[2]
+end
+function is_new_trial(hatQ_vec, x)
+    trial_finder(hatQ_vec, x)[1]
+end
 function push_manager(hatQ3_dict, hatQ3_vec, x1, algo1dict)
-    if isempty(hatQ3_vec) # the very first
+    is_new, old_ind = trial_finder(hatQ3_vec, x1)
+    if is_new
         push!(hatQ3_vec, x1)
-        push!(hatQ3_dict, 1 => hatQ_ini())
-        push!(hatQ3_dict[1]["cx"         ], algo1dict["pai"])
-        push!(hatQ3_dict[1]["ct"         ], algo1dict["pai0"])
-        push!(hatQ3_dict[1]["rhs"        ], algo1dict["rhs"])
-        push!(hatQ3_dict[1]["id"         ], 1)
+        ind = length(hatQ3_dict) + 1
+        push!(hatQ3_dict, ind => hatQ_ini())
+        push!(hatQ3_dict[ind]["cx"         ], algo1dict["pai"])
+        push!(hatQ3_dict[ind]["ct"         ], algo1dict["pai0"])
+        push!(hatQ3_dict[ind]["rhs"        ], algo1dict["rhs"])
+        push!(hatQ3_dict[ind]["id"         ], 1)
     else
-        bv = isapprox.(x1, hatQ3_vec; atol = 1e-5)
-        if any(bv) # this trial x1 is not new
-            indtmp = findall(x -> x==true, bv)
-            @assert length(indtmp) == 1
-            ind = indtmp[1]
-            push!(hatQ3_dict[ind]["cx"         ], algo1dict["pai"])
-            push!(hatQ3_dict[ind]["ct"         ], algo1dict["pai0"])
-            push!(hatQ3_dict[ind]["rhs"        ], algo1dict["rhs"])
-            push!(hatQ3_dict[ind]["id"], length(hatQ3_dict[ind]["id"]) + 1)
-        else # this trial x1 is a new one
-            push!(hatQ3_vec, x1)
-            ind = length(hatQ3_dict) + 1
-            push!(hatQ3_dict, ind => hatQ_ini())
-            push!(hatQ3_dict[ind]["cx"         ], algo1dict["pai"])
-            push!(hatQ3_dict[ind]["ct"         ], algo1dict["pai0"])
-            push!(hatQ3_dict[ind]["rhs"        ], algo1dict["rhs"])
-            push!(hatQ3_dict[ind]["id"         ], 1)
-        end
+        push!(hatQ3_dict[old_ind]["cx"         ], algo1dict["pai"])
+        push!(hatQ3_dict[old_ind]["ct"         ], algo1dict["pai0"])
+        push!(hatQ3_dict[old_ind]["rhs"        ], algo1dict["rhs"])
+        push!(hatQ3_dict[old_ind]["id"], length(hatQ3_dict[old_ind]["id"]) + 1)
     end
 end
-function float_to_ind(hatQ3_vec, x1)
-    bv = isapprox.(x1, hatQ3_vec; atol = 1e-5)
-    indtmp = findall(x -> x==true, bv)
-    @assert length(indtmp) == 1
-    indtmp[1]
-end
-function push_manager_2(hatQ2, algo1dict)
-    push!(hatQ2["cx" ], algo1dict["pai"])
-    push!(hatQ2["ct" ], algo1dict["pai0"])
-    push!(hatQ2["rhs"], algo1dict["rhs"])
-    push!(hatQ2["id" ], length(hatQ2["id"]) + 1)
-end
+
 
 c_sv = [0, 0, 0, 0, 1.]
 num_decisions = 3 # number of formal decisions
@@ -211,9 +209,13 @@ xi = [-5.695317366271182, 6.0858364182273625, 9.64088857196068]
 @info "beginning" x0 "xi"
 @info xi
 
-hatQ2 = hatQ_ini() # this dict is stationary and is unique because x0 is fixed
+
 hatQ3_vec = Float64[] # x_1_trials, only one component x1 is related
 hatQ3_dict = Dict{Int64, Dict{String, Vector}}()
+hatQ2_vec = Float64[] # x_1_trials, only one component x1 is related
+hatQ2_dict = Dict{Int64, Dict{String, Vector}}()
+
+
 
 tdi = Dict(
     "ite" => -1,
@@ -223,10 +225,13 @@ tdi = Dict(
 
 # for ite in 1:typemax(Int)
 
+
+
+
+curr_explore_x1 = Float64[NaN, NaN] # begin: a old one, used to read ;;  end: a new one, write to it
 ite = 1
 if true
-    x0v = Float64[x0]
-    x1v = Float64[NaN]
+    xm1v = Float64[x0]
     xdsv = Vector{Float64}[zeros(5) for _ in 1:num_decisions-1]
     thd = zeros(num_decisions-1) # ⚠️⚠️⚠️ this serve as an initial lower bound, ans is used as extended trial points
     d = 1 # beginning stage
@@ -237,135 +242,68 @@ if true
     JuMP.@variable(m, a1)
     JuMP.@variable(m, f1)
     JuMP.@constraint(m, c1 == 2. * b1 - 1.)
-    JuMP.@constraint(m, x1 == x0v[end] + xi[d] + c1) # linking
-    JuMP.@constraint(m, a1 >=  x1)
-    JuMP.@constraint(m, a1 >= -x1)
-    JuMP.@constraint(m, f1 == stage_c(d) * a1) # time here
-    x1sv = [b1, c1, x1, a1, f1]
-    JuMP.@objective(m, Min, c_sv' * x1sv) # the goal
-    JuMP.optimize!(m)
-    @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-    xdsv[d], x0v[end] = JuMP.value.(x1sv), JuMP.value(x1)
-    x1v[1] = xdsv[d][3] # only when d == 1
-    d = 2 # end stage
-    m = JumpModel() # the master problem of the 1st stage
-    JuMP.@variable(m, 0. <= b1 <= 1., Int)
-    JuMP.@variable(m, c1)
-    JuMP.@variable(m, x1)
-    JuMP.@variable(m, a1)
-    JuMP.@variable(m, f1)
-    JuMP.@constraint(m, c1 == 2. * b1 - 1.)
-    JuMP.@constraint(m, x1 == x0v[end] + xi[d] + c1) # linking
-    JuMP.@constraint(m, a1 >=  x1)
-    JuMP.@constraint(m, a1 >= -x1)
-    JuMP.@constraint(m, f1 == stage_c(d) * a1) # time here
-    x1sv = [b1, c1, x1, a1, f1]
-    JuMP.@objective(m, Min, c_sv' * x1sv) # the goal
-    JuMP.optimize!(m)
-    @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-    xdsv[d], x0v[end] = JuMP.value.(x1sv), JuMP.value(x1)
-    @info "ite = 1, ub" f1 = xdsv[1][5]  f2 = xdsv[2][5]  f3 = Q2(stage_c, Dict(), xi[num_decisions]; t2 = num_decisions, x1sv = xdsv[end])
-    @info "ite = 1, end of fwd" ub = sum(i[5] for i in xdsv) + Q2(stage_c, Dict(), xi[num_decisions]; t2 = num_decisions, x1sv = xdsv[end])
-    # bwd
-    bv = falses(num_decisions-1)
-    d = 2
-    algo1dict = algorithm1(
-        stage_c,
-        Q2,
-        Q2_ast,
-        Dict(),
-        (d == 1 ? x0 : xdsv[d-1][3]), # ⚠️ this parameter is crutial
-        xi[d],
-        xi[d+1];
-        t1 = d,
-        x1sv = xdsv[d],
-        th1 = thd[d]
-    )
-    @assert algo1dict["cut_gened"] "the very first trial point has no cuts! How to continue ???"
-    if algo1dict["cut_gened"]
-        @assert isapprox(algo1dict["pai0"] + LinearAlgebra.norm(algo1dict["pai"], norm_sense), 1.; atol = 1e-6) "cut coeff's bounding restriction pai0 + ||pai|| <= 1. is not active!"
-        push_manager(hatQ3_dict, hatQ3_vec, xdsv[d-1][3], algo1dict)
-        bv[d] = true
-    end
-    d = 1
-    algo1dict = algorithm1(
-        stage_c,
-        Q2,
-        Q2_ast,
-        hatQ3_dict[float_to_ind(hatQ3_vec, x1v[d])], # generated above
-        (d == 1 ? x0 : xdsv[d-1][3]), # ⚠️ this parameter is crutial
-        xi[d],
-        xi[d+1];
-        t1 = d,
-        x1sv = xdsv[d],
-        th1 = thd[d]
-    )
-    @assert algo1dict["cut_gened"] "the very first(2) trial point has no cuts! How to continue ???"
-    if algo1dict["cut_gened"]
-        @assert isapprox(algo1dict["pai0"] + LinearAlgebra.norm(algo1dict["pai"], norm_sense), 1.; atol = 1e-6) "cut coeff's bounding restriction pai0 + ||pai|| <= 1. is not active!"
-        push_manager_2(hatQ2, algo1dict)
-        bv[d] = true
-    end
-end
-
-ite = 2
-if true
-    x0v = Float64[x0]
-    x1v = Float64[NaN]
-    xdsv = Vector{Float64}[zeros(5) for _ in 1:num_decisions-1]
-    thd = zeros(num_decisions-1) # ⚠️⚠️⚠️ this serve as an initial lower bound, ans is used as extended trial points
-    d = 1 # beginning stage
-    m = JumpModel() # the master problem of the 1st stage
-    JuMP.@variable(m, 0. <= b1 <= 1., Int)
-    JuMP.@variable(m, c1)
-    JuMP.@variable(m, x1)
-    JuMP.@variable(m, a1)
-    JuMP.@variable(m, f1)
-    JuMP.@constraint(m, c1 == 2. * b1 - 1.)
-    JuMP.@constraint(m, x1 == x0v[end] + xi[d] + c1) # linking
+    JuMP.@constraint(m, x1 == xm1v[end] + xi[d] + c1) # linking
     JuMP.@constraint(m, a1 >=  x1)
     JuMP.@constraint(m, a1 >= -x1)
     JuMP.@constraint(m, f1 == stage_c(d) * a1) # time here
     x1sv = [b1, c1, x1, a1, f1]
     JuMP.@variable(m, 0. <= th1) # ⚠️ mind the lower bound for th1
-    lD = hatQ2
-    for (cx, ct, rhs) in zip(lD["cx"], lD["ct"], lD["rhs"])
-        JuMP.@constraint(m, cx' * x1sv + ct * th1 >= rhs) # ⚠️ x1sv ~ th1 relation is derived from hatQ2
-    end
-    JuMP.@objective(m, Min, c_sv' * x1sv + th1) # the goal
-    JuMP.optimize!(m)
-    @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-    xdsv[d], thd[d], x0v[end] = JuMP.value.(x1sv), JuMP.value(th1), JuMP.value(x1)
-    x1v[1] = xdsv[d][3]
-    x1_is_new = !any( isapprox.( x1v[1], hatQ3_vec ;atol = 1e-5) )
-
-    d = 2 # end stage
-    m = JumpModel() # the master problem of the 1st stage
-    JuMP.@variable(m, 0. <= b1 <= 1., Int)
-    JuMP.@variable(m, c1)
-    JuMP.@variable(m, x1)
-    JuMP.@variable(m, a1)
-    JuMP.@variable(m, f1)
-    JuMP.@constraint(m, c1 == 2. * b1 - 1.)
-    JuMP.@constraint(m, x1 == x0v[end] + xi[d] + c1) # linking
-    JuMP.@constraint(m, a1 >=  x1)
-    JuMP.@constraint(m, a1 >= -x1)
-    JuMP.@constraint(m, f1 == stage_c(d) * a1) # time here
-    x1sv = [b1, c1, x1, a1, f1]
-    JuMP.@variable(m, 0. <= th1) # ⚠️ mind the lower bound for th1
-    if !x1_is_new
-        lD = hatQ3_dict[float_to_ind(hatQ3_vec, x1v[1])]
-        for (cx, ct, rhs) in zip(lD["cx"], lD["ct"], lD["rhs"])
-            JuMP.@constraint(m, cx' * x1sv + ct * th1 >= rhs) # ⚠️ x1sv ~ th1 relation is derived from hatQ2
+    if !isempty(hatQ2_vec)
+        if !is_new_trial(hatQ2_vec, curr_explore_x1[begin])
+            ind = trial_to_ind(hatQ2_vec, curr_explore_x1[begin])
+            lD = hatQ2_dict[ind]
+            for (cx, ct, rhs) in zip(lD["cx"], lD["ct"], lD["rhs"])
+                JuMP.@constraint(m, cx' * x1sv + ct * th1 >= rhs) # ⚠️ x1sv ~ th1 relation is derived from hatQ2
+            end
         end
     end
     JuMP.@objective(m, Min, c_sv' * x1sv + th1) # the goal
     JuMP.optimize!(m)
     @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-    xdsv[d], thd[d], x0v[end] = JuMP.value.(x1sv), JuMP.value(th1), JuMP.value(x1)
-    @info "ite = 2, ub" f1 = xdsv[1][5]  f2 = xdsv[2][5]  f3 = Q2(stage_c, Dict(), xi[num_decisions]; t2 = num_decisions, x1sv = xdsv[end])
-    @info "ite = 2, end of fwd" ub = sum(i[5] for i in xdsv) + Q2(stage_c, Dict(), xi[num_decisions]; t2 = num_decisions, x1sv = xdsv[end])
-    
+    xdsv[d], thd[d], xm1v[end] = JuMP.value.(x1sv), JuMP.value(th1), JuMP.value(x1)
+    curr_explore_x1[end] = xdsv[1][3] # write to curr_explore_x1, once per ite
+    # if !isapprox(curr_explore_x1[begin], curr_explore_x1[end]; atol = 1e-5)
+    #     # if do not run this `if`, lb > ub may happen 
+    #     # next line is hard code
+    #     thd[1] = 0.
+    # end
+    curr_explore_x1[begin] = curr_explore_x1[end]
+    d = 2 # end stage
+    m = JumpModel() # the master problem of the 1st stage
+    JuMP.@variable(m, 0. <= b1 <= 1., Int)
+    JuMP.@variable(m, c1)
+    JuMP.@variable(m, x1)
+    JuMP.@variable(m, a1)
+    JuMP.@variable(m, f1)
+    JuMP.@constraint(m, c1 == 2. * b1 - 1.)
+    JuMP.@constraint(m, x1 == xm1v[end] + xi[d] + c1) # linking
+    JuMP.@constraint(m, a1 >=  x1)
+    JuMP.@constraint(m, a1 >= -x1)
+    JuMP.@constraint(m, f1 == stage_c(d) * a1) # time here
+    x1sv = [b1, c1, x1, a1, f1]
+    JuMP.@variable(m, 0. <= th1) # ⚠️ mind the lower bound for th1
+    if !isempty(hatQ3_vec)
+        if !is_new_trial(hatQ3_vec, curr_explore_x1[begin])
+            ind = trial_to_ind(hatQ3_vec, curr_explore_x1[begin])
+            lD = hatQ3_dict[ind]
+            for (cx, ct, rhs) in zip(lD["cx"], lD["ct"], lD["rhs"])
+                JuMP.@constraint(m, cx' * x1sv + ct * th1 >= rhs) # ⚠️ x1sv ~ th1 relation is derived from hatQ2
+            end
+        end
+    end
+    JuMP.@objective(m, Min, c_sv' * x1sv + th1) # the goal
+    JuMP.optimize!(m)
+    @assert JuMP.termination_status(m) == JuMP.OPTIMAL
+    xdsv[d], thd[d], xm1v[end] = JuMP.value.(x1sv), JuMP.value(th1), JuMP.value(x1)
+    f1 = xdsv[1][5]
+    f2 = xdsv[2][5]
+    f3 = Q2(stage_c, Dict(), xi[num_decisions]; t2 = num_decisions, x1sv = xdsv[end])
+    ub = f1 + f2 + f3
+    th2 = thd[2]
+    th1 = thd[1]
+    lb = f1 + th1
+    @assert lb < ub + 1e-6
+    @info "ite = $ite, end of fwd" above2=f3 th2 above1=f2+f3 th1 ub lb
     # bwd
     bv = falses(num_decisions-1)
     d = 2
@@ -383,15 +321,17 @@ if true
     )
     if algo1dict["cut_gened"]
         @assert isapprox(algo1dict["pai0"] + LinearAlgebra.norm(algo1dict["pai"], norm_sense), 1.; atol = 1e-6) "cut coeff's bounding restriction pai0 + ||pai|| <= 1. is not active!"
-        push_manager(hatQ3_dict, hatQ3_vec, xdsv[d-1][3], algo1dict)
+        push_manager(hatQ3_dict, hatQ3_vec, curr_explore_x1[begin], algo1dict) # here, 1 is not related to d
         bv[d] = true
     end
     d = 1
+    ind = trial_to_ind(hatQ3_vec, curr_explore_x1[begin])
+    @assert ind != -1 # because you've pushed it
     algo1dict = algorithm1(
         stage_c,
         Q2,
         Q2_ast,
-        hatQ3_dict[float_to_ind(hatQ3_vec, x1v[1])], # generated above
+        hatQ3_dict[ind], # send the right hatQ dict
         (d == 1 ? x0 : xdsv[d-1][3]), # ⚠️ this parameter is crutial
         xi[d],
         xi[d+1];
@@ -401,16 +341,31 @@ if true
     )
     if algo1dict["cut_gened"]
         @assert isapprox(algo1dict["pai0"] + LinearAlgebra.norm(algo1dict["pai"], norm_sense), 1.; atol = 1e-6) "cut coeff's bounding restriction pai0 + ||pai|| <= 1. is not active!"
-        push_manager_2(hatQ2, algo1dict)
+        push_manager(hatQ2_dict, hatQ2_vec, curr_explore_x1[begin], algo1dict)
         bv[d] = true
     end
-
+    @info "end of ite = $ite" bv
 end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ite = 3
 if true
-    x0v = Float64[x0]
+    xm1v = Float64[x0]
     x1v = Float64[NaN]
     xdsv = Vector{Float64}[zeros(5) for _ in 1:num_decisions-1]
     thd = zeros(num_decisions-1) # ⚠️⚠️⚠️ this serve as an initial lower bound, ans is used as extended trial points
@@ -422,7 +377,7 @@ if true
     JuMP.@variable(m, a1)
     JuMP.@variable(m, f1)
     JuMP.@constraint(m, c1 == 2. * b1 - 1.)
-    JuMP.@constraint(m, x1 == x0v[end] + xi[d] + c1) # linking
+    JuMP.@constraint(m, x1 == xm1v[end] + xi[d] + c1) # linking
     JuMP.@constraint(m, a1 >=  x1)
     JuMP.@constraint(m, a1 >= -x1)
     JuMP.@constraint(m, f1 == stage_c(d) * a1) # time here
@@ -435,7 +390,7 @@ if true
     JuMP.@objective(m, Min, c_sv' * x1sv + th1) # the goal
     JuMP.optimize!(m)
     @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-    xdsv[d], thd[d], x0v[end] = JuMP.value.(x1sv), JuMP.value(th1), JuMP.value(x1)
+    xdsv[d], thd[d], xm1v[end] = JuMP.value.(x1sv), JuMP.value(th1), JuMP.value(x1)
     x1v[1] = xdsv[d][3]
     x1_is_new = !any( isapprox.( x1v[1], hatQ3_vec ;atol = 1e-5) )
 
@@ -447,7 +402,7 @@ if true
     JuMP.@variable(m, a1)
     JuMP.@variable(m, f1)
     JuMP.@constraint(m, c1 == 2. * b1 - 1.)
-    JuMP.@constraint(m, x1 == x0v[end] + xi[d] + c1) # linking
+    JuMP.@constraint(m, x1 == xm1v[end] + xi[d] + c1) # linking
     JuMP.@constraint(m, a1 >=  x1)
     JuMP.@constraint(m, a1 >= -x1)
     JuMP.@constraint(m, f1 == stage_c(d) * a1) # time here
@@ -462,7 +417,7 @@ if true
     JuMP.@objective(m, Min, c_sv' * x1sv + th1) # the goal
     JuMP.optimize!(m)
     @assert JuMP.termination_status(m) == JuMP.OPTIMAL
-    xdsv[d], thd[d], x0v[end] = JuMP.value.(x1sv), JuMP.value(th1), JuMP.value(x1)
+    xdsv[d], thd[d], xm1v[end] = JuMP.value.(x1sv), JuMP.value(th1), JuMP.value(x1)
     @info "ite = 3, ub" f1 = xdsv[1][5]  f2 = xdsv[2][5]  f3 = Q2(stage_c, Dict(), xi[num_decisions]; t2 = num_decisions, x1sv = xdsv[end])
     @info "ite = 3, end of fwd" ub = sum(i[5] for i in xdsv) + Q2(stage_c, Dict(), xi[num_decisions]; t2 = num_decisions, x1sv = xdsv[end])
     
