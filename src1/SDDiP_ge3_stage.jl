@@ -5,7 +5,7 @@ import Gurobi
 import JuMP
 import Distributions
 
-# 3-stage SDDiP with iterated Lag-cutting planes
+# (>=3)-stage SDDiP with iterated Lag-cutting planes
 # ⚠️ specify cbv according to data firstly
 # 28/12/23
 
@@ -51,10 +51,10 @@ TOL = minimum(cbv)/2
 const bias = -10.
 anchors = collect(get_anchors(cbv, bias));
 
-num_decisions = 3 # number of formal decisions
-x0 = rand(Distributions.Uniform(-5., 5.))
-xi = [rand(Distributions.Uniform(-5., 5.)) for _ in 1:num_decisions]
-# x0 = 3.563022746374866
+num_decisions = 5 # number of formal decisions
+# x0 = rand(Distributions.Uniform(-4., 4.))
+xi = [rand(Distributions.Uniform(-4., 4.)) for _ in 1:num_decisions]
+x0 = 3.563022746374866
 x0b = f2bv(x0)
 # xi = [-7.695317366271182, 6.0858364182273625, 9.64088857196068]
 
@@ -290,7 +290,7 @@ for ite in 1:1000000
 end
 imcost[num_decisions], x0btmp = Q2_kernel(num_decisions, Dict(), x0btmp) # precise eval at last stage
 @info "action in float" x=[[ bv2f(xbv[d]) for d in 1:num_decisions-1 ]; bv2f(x0btmp)]
-println("action chain, with the last action omitted")
+println("full action chain")
 @info [xbv; [x0btmp]]
 @info "Integer imcumbent cost" global_ub=sum(imcost) imcost
 
