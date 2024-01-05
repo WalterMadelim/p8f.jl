@@ -1,4 +1,4 @@
-using CairoMakie
+# using CairoMakie
 using Logging
 using OffsetArrays
 import LinearAlgebra
@@ -6,21 +6,14 @@ import Gurobi
 import JuMP
 import Distributions
 
-# test results
-# ┌ Info: cnt ▶ 2
-# │   ub = 7.847689827427952
-# │   lb = 5.633410155824562
-# └   gap = 0.2821568793231869
-# [ Info: 📘 break due to saturation of Lag-cuts
-# ┌ Info: cnt ▶ 115
-# │   ub = 6.925228378650781
-# │   lb = 6.924698971429888
-# └   gap = 7.644617504959864e-5
-# ┌ Info: 😊 gap <= 0.01%, check solutions
-# │   x1_candidate = 2.754952949908123
-# └   val_candidate = 6.925228378650781
-# julia> (val_candidate_by_our_algorithm)6.925228378650781 - (Gurobi_large_scale_program_ref)6.9252259523428705
-# 2.426307910141645e-6
+# 05/01/24
+# a typical 3-stage 1-scene nonconvex MIP problem
+# we firstly generate lag-cuts until saturation, with which the gap reduces from 100% to 28%
+# then we generate non-convex lip-cuts, it close the gap to <= 0.01%
+# `rho` is a hyper-parameter
+# if rho is small than some threshold, then we may break training due to saturation of Lip-cuts before gap converging
+# e.g. rho >= 1.4 can ensure convergent 
+# For lip-cuts, we can generate both reverse-norm (impartial) and biased cuts.
 
 column(x::JuMP.VariableRef) = Gurobi.c_column(JuMP.backend(JuMP.owner_model(x)), JuMP.index(x))
 function JumpModel(env = GRB_ENV)
@@ -52,7 +45,7 @@ end
 function v1(x1::Float64) # the immediate cost of 1st-stage
     1.3 * abs(x1 - 3.4)
 end
-function v_opt(xi = xi[2:end]) # the real optimal (val = 1.48338964314651, x1 = 1.2851074717115383)
+function v_opt(xi = xi[2:end]) # the real optimal (2.7549380348594634, 6.9252259523428705)
     # use Gurobi-large-scale-MILP-brute-force
     t2 = 2
     len = length(xi)
@@ -154,24 +147,24 @@ if true
         precise_Q_ast_val, cp, cp0 = JuMP.objective_value(m), JuMP.value(x2), JuMP.value(o_3)
     end
     function Q2(x1) # this is not ending stage, thus a surrogate itself
+        t = 2
         m = JumpModel()
         JuMP.@variable(m, x2)
-        JuMP.@variable(m, a)
-        JuMP.@constraint(m, a >=  x2)
-        JuMP.@constraint(m, a >= -x2)
-        JuMP.@variable(m, b, Bin)
-        JuMP.@constraint(m, x2 == x1 + xi[2] + (2. * b - 1.))
-        f2 = stage_c(2) * a
+        JuMP.@variable(m, a2)
+        JuMP.@constraint(m, a2 >=  x2)
+        JuMP.@constraint(m, a2 >= -x2)
+        JuMP.@variable(m, b2, Bin)
+        JuMP.@constraint(m, x2 == x1 + xi[t] + (2. * b2 - 1.))
+        f2 = stage_c(t) * a2
         # aftereffects
         JuMP.@variable(m, th2 >= 0.)
-        lD = x_th_dv[2]["lag"]
-        for (cx, ct, rhs) in zip(lD["pai"], lD["pai0"], lD["rhs"])
-            JuMP.@constraint(m, cx * x2 + ct * th2 >= rhs)
+        lD = x_th_dv[t]["lag"]
+        for (pai, pai0, rhs) in zip(lD["pai"], lD["pai0"], lD["rhs"])
+            JuMP.@constraint(m, pai * x2 + pai0 * th2 >= rhs)
         end
-        lD = x_th_dv[2]["lip"]
-        tmpl = length(lD["id"])
-        JuMP.@variable(m, cx2[1:tmpl])
-        JuMP.@variable(m, n1_cx2[1:tmpl])
+        lD = x_th_dv[t]["lip"]
+        JuMP.@variable(m, cx2[    eachindex(lD["id"]) ])
+        JuMP.@variable(m, n1_cx2[ eachindex(lD["id"]) ])
         for (xcenter, pai, pai0, rhs, i) in zip(lD["xcenter"], lD["pai"], lD["pai0"], lD["rhs"], lD["id"])
             JuMP.@constraint(m, cx2[i] == x2 - xcenter)
             errcode_norm = Gurobi.GRBaddgenconstrNorm(JuMP.backend(m), "", column(n1_cx2[i]), Cint(1), [column(cx2[i])], norm_sense)
@@ -211,6 +204,7 @@ if true
         precise_Q_ast_val, cp, cp0 = JuMP.objective_value(m), JuMP.value(x1), JuMP.value(o_2)
     end
     function Q2_ast(rho::Float64, xcenter::Float64, pai::Float64, pai0::Float64)
+        t = 2
         m = JumpModel()
         # first stage variable and constraints
         JuMP.@variable(m, -20. <= x1 <= 20.)
@@ -220,18 +214,17 @@ if true
         JuMP.@constraint(m, a >=  x2)
         JuMP.@constraint(m, a >= -x2)
         JuMP.@variable(m, b, Bin)
-        JuMP.@constraint(m, x2 == x1 + xi[2] + (2. * b - 1.))
-        f2 = stage_c(2) * a
+        JuMP.@constraint(m, x2 == x1 + xi[t] + (2. * b - 1.))
+        f2 = stage_c(t) * a
         # aftereffects
         JuMP.@variable(m, th2 >= 0.)
-        lD = x_th_dv[2]["lag"]
+        lD = x_th_dv[t]["lag"]
         for (cx, ct, rhs) in zip(lD["pai"], lD["pai0"], lD["rhs"])
             JuMP.@constraint(m, cx * x2 + ct * th2 >= rhs)
         end
-        lD = x_th_dv[2]["lip"]
-        tmpl = length(lD["id"])
-        JuMP.@variable(m, cx2[1:tmpl])
-        JuMP.@variable(m, n1_cx2[1:tmpl])
+        lD = x_th_dv[t]["lip"]
+        JuMP.@variable(m, cx2[    eachindex(lD["id"]) ])
+        JuMP.@variable(m, n1_cx2[ eachindex(lD["id"]) ])
         for (xcenter, pai, pai0, rhs, i) in zip(lD["xcenter"], lD["pai"], lD["pai0"], lD["rhs"], lD["id"])
             JuMP.@constraint(m, cx2[i] == x2 - xcenter)
             errcode_norm = Gurobi.GRBaddgenconstrNorm(JuMP.backend(m), "", column(n1_cx2[i]), Cint(1), [column(cx2[i])], norm_sense)
@@ -430,8 +423,8 @@ norm_sense = Cdouble(1.0)
 x0 = 1.6169779972529312
 xi = [3.760961946673934, -3.3367588557691774, -0.4625729914588472, -2.3338475912995738, -0.39159770602499044, -1.696214192324227,  3.224144216292162,  3.790779412949041, -1.5488703272238502,  4.521890360278045, -3.500405403145679]
 
-rho = 1.9
-x_th_dv = [cut_init() for _ in 1:2]
+rho = 1.4
+x_th_dv = [cut_init() for _ in 1:2] # x_th_dv[1] depicts x1-th1 relation
 
 x1_candidate = [NaN]
 ub = [Inf, Inf]
@@ -439,8 +432,9 @@ lb = [-Inf, -Inf]
 x = [NaN, NaN]
 th = [NaN, NaN]
 f = [NaN, NaN, NaN]
-curr_cut_cnt = [0]
-while true # lag-cut generating
+curr_cut_cnt = [0] # a global counter, for both lag-phase and lip-phase
+lag_cut_generating = lip_cut_generating = true # a waste of space
+while lag_cut_generating
     m = JumpModel()
     JuMP.@variable(m, -20. <= x1 <= 20.)
     JuMP.@variable(m, a1)
@@ -526,8 +520,7 @@ while true # lag-cut generating
         break
     end
 end
-
-while true # lip-cut generating
+while lip_cut_generating
     m = JumpModel()
     JuMP.@variable(m, -20. <= x1 <= 20.)
     JuMP.@variable(m, a1)
@@ -539,14 +532,13 @@ while true # lip-cut generating
         JuMP.@constraint(m, pai * x1 + pai0 * th1 >= rhs)
     end
     lD = x_th_dv[1]["lip"]
-    tmpl = length(lD["id"])
-    JuMP.@variable(m, cx1[1:tmpl])
-    JuMP.@variable(m, n1_cx1[1:tmpl])
+    JuMP.@variable(m, cx2[    eachindex(lD["id"]) ])
+    JuMP.@variable(m, n1_cx2[ eachindex(lD["id"]) ])
     for (xcenter, pai, pai0, rhs, i) in zip(lD["xcenter"], lD["pai"], lD["pai0"], lD["rhs"], lD["id"])
-        JuMP.@constraint(m, cx1[i] == x1 - xcenter)
-        errcode_norm = Gurobi.GRBaddgenconstrNorm(JuMP.backend(m), "", column(n1_cx1[i]), Cint(1), [column(cx1[i])], norm_sense)
+        JuMP.@constraint(m, cx2[i] == x1 - xcenter)
+        errcode_norm = Gurobi.GRBaddgenconstrNorm(JuMP.backend(m), "", column(n1_cx2[i]), Cint(1), [column(cx2[i])], norm_sense)
         @assert errcode_norm == 0 "Gurobi's norm_1 constr fail"
-        JuMP.@constraint(m, pai0 * (th1 + rho * n1_cx1[i]) + pai * x1 >= rhs)
+        JuMP.@constraint(m, pai0 * (th1 + rho * n1_cx2[i]) + pai * x1 >= rhs)
     end
     f1 = 1.3 * a1
     JuMP.@objective(m, Min, f1 + th1)
@@ -576,9 +568,8 @@ while true # lip-cut generating
         JuMP.@constraint(m, pai * x2 + pai0 * th2 >= rhs)
     end
     lD = x_th_dv[2]["lip"]
-    tmpl = length(lD["id"])
-    JuMP.@variable(m, cx2[1:tmpl])
-    JuMP.@variable(m, n1_cx2[1:tmpl])
+    JuMP.@variable(m, cx2[    eachindex(lD["id"]) ])
+    JuMP.@variable(m, n1_cx2[ eachindex(lD["id"]) ])
     for (xcenter, pai, pai0, rhs, i) in zip(lD["xcenter"], lD["pai"], lD["pai0"], lD["rhs"], lD["id"])
         JuMP.@constraint(m, cx2[i] == x2 - xcenter)
         errcode_norm = Gurobi.GRBaddgenconstrNorm(JuMP.backend(m), "", column(n1_cx2[i]), Cint(1), [column(cx2[i])], norm_sense)
@@ -602,6 +593,7 @@ while true # lip-cut generating
         @info "cnt ▶ $(curr_cut_cnt[begin])" ub=ub[begin] lb=lb[begin] gap=gap
         if gap < 0.01/100
             @info "😊 gap <= 0.01%, check solutions" x1_candidate=x1_candidate[begin] val_candidate=ub[begin]
+            @info "You can also compare them with large_scale references" v_opt()
             break
         end
     end
@@ -676,9 +668,3 @@ if false
     end
 end
     
-
-
-
-
-
-
