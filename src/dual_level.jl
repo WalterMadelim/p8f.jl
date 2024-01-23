@@ -5,12 +5,13 @@ using Logging
 
 # solving a dual problem with level method
 # instance MKAP
+# initial z̄ need to be tuned manually for each new case
 # cf. [Rui Chen 2024]
-# 22/01/24
+# 23/01/24
 
 function JumpModel(env = GRB_ENV)
     m = JuMP.direct_model(Gurobi.Optimizer(env))
-    JuMP.set_silent(m)
+    JuMP.set_silent(m) # use JuMP.unset_silent(m) to debug when it is needed
     return m
 end
 function get_params(N, M, R)
@@ -82,6 +83,7 @@ function primal_with_copy_variables()
     JuMP.objective_value(m) # -54.747354489285534
 end
 
+z̄ = -54. # to derive this value, run the content of either one of the two primal_formulations, ctrl+c if too slow, and `JuMP.objective_value(m)`
 Vhat = [Vector{Float64}[] for i = 1:M, k = 1:K]; # Vhat[i, k] store the ext points of conv(Q[i, k]) 
 Dmat = zeros(M, K); # a tmp matrix storing pricing problem values
 lb = -Inf * ones(2); # ObjValue
@@ -106,7 +108,7 @@ for lv_ite in 1:typemax(Int)
                 JuMP.@constraint(m, th[i, k] <= coeff_vec' * [pi_x[i, sbrg(k)]; pi_y[i, k]]) # (EC.3b)
             end
         end
-        JuMP.@variable(m, obj3a <= -54.) # (EC.3d)
+        JuMP.@variable(m, obj3a <= z̄) # (EC.3d)
         JuMP.@constraint(m, obj3a == sum(th) + b_top_beta) # purple underline
     end
     JuMP.@objective(m, Max, obj3a)
@@ -139,11 +141,12 @@ for lv_ite in 1:typemax(Int)
                     JuMP.@constraint(m, th[i, k] <= coeff_vec' * [pi_x[i, sbrg(k)]; pi_y[i, k]]) # (EC.3b)
                 end
             end
-            JuMP.@variable(m, obj3a <= -54.) # (EC.3d)
+            JuMP.@variable(m, obj3a <= z̄) # (EC.3d)
             JuMP.@constraint(m, obj3a == sum(th) + b_top_beta) # purple underline
         end
         JuMP.@constraint(m, obj3a >= .7 * ub[begin] + .3 * lb[begin]) # (EC.4)
         JuMP.@objective(m, Min, dist2(beta_x, beta_x_t[:, end]) + dist2(beta_y, beta_y_t[:, end]) + dist2(pi_x, pi_x_t[:, :, end]) + dist2(pi_y, pi_y_t[:, :, end]))
+        JuMP.set_attribute(m, "BarHomogeneous", 1) # [Gurobi exclusive] to delay or eliminate the circumstance that (QP) termination_status == NUMERICAL_ERROR
         JuMP.optimize!(m)
         @assert JuMP.termination_status(m) == JuMP.OPTIMAL "$(JuMP.termination_status(m))"
     end
