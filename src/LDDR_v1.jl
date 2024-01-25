@@ -5,7 +5,7 @@ import Distributions
 import Statistics
 using Logging
 
-# version 1.0 including upper bound
+# version 2.0: presolving an SP, calculate its statistical_lb and statistical_ub by basic methods 
 # 2024/1/25
 
 function JumpModel(env = GRB_ENV)
@@ -25,6 +25,8 @@ GRB_ENV = Gurobi.Env()
 if true # data for the program
     alpha = .05
     z_alpha = Distributions.quantile(Distributions.Normal(), 1. - alpha) # used in one-side confidence bound
+    statistical_ub = 67924.7279074679 # due to policy 4p1, at N = 10000
+    statistical_lb = 55838.76768156331 # due to EVPI, at N = 10000
     T, J, S = 4, 3, 5 # S is the samples taken in SAA
     MU = Float64[ # serves as the Expectation of D
         74  140 88
@@ -43,11 +45,17 @@ if true # data for the program
     inventory_UB = 10. * EDj_bar # indexed by j, RHS of (27e, 27f)
     time_UB = 1.5 * sum.(eachrow(MU)) # indexed by t, RHS of (27c)
     o_UB = .25 * time_UB # indexed by t, RHS of (27g)
-    obj3a_UB = 67924.7279074679 # this 95% upper bound is due to policy 4p1, at N = 10000
+    obj3a_UB = statistical_ub
     d_epsilon = get_logNormal_dist(1., .5)
     d_delta = [get_logNormal_dist(MU[t, j], .2 * t * MU[t, j]) for t in eachindex(eachrow(MU)), j in eachindex(eachcol(MU))]
 end
 
+function one_side_bound_raw(sampler::Function, N)
+    v = [sampler() for _ in 1:N]
+    x̄ = Statistics.mean(v)
+    s = Statistics.std(v; mean = x̄)
+    x̄, z_alpha * s / sqrt(N) # (67702.00986320838, 222.71804425951458) at N = 10000
+end
 function a_sample_value_by_policy_4p1()
     costs = zeros(T)
     x_m1 = [0. for j in 1:J]
@@ -88,11 +96,29 @@ function a_sample_value_by_policy_4p1()
     end
     sum(costs)
 end
-
-function statistical_ub_by_policy_4p1(N)
-    sample_vector = [a_sample_value_by_policy_4p1() for _ in 1:N]
-    xbar = Statistics.mean(sample_vector)
-    s = Statistics.std(sample_vector; mean = xbar)
-    xbar, z_alpha * s / sqrt(N) # (67702.00986320838, 222.71804425951458) at N = 10000
+function a_perfect_info_sample_value()
+    D_s = deepcopy(MU)
+    (Ups_s = deepcopy(D_s); Ups_s .= 1.)
+    for t in 2:T, j in 1:J
+        epsilon, delta = rand(d_epsilon), rand(d_delta[t,j])
+        Ups_s[t, j] = rho * Ups_s[t-1, j] + (1-rho) * epsilon
+        D_s[t, j] = rhoY * Ups_s[t, j] * MU[t, j] + (1-rhoY) * delta
+    end
+    t = 1
+    m = JumpModel()
+    JuMP.@variable(m, y[t:T, 1:J], Bin)
+    JuMP.@variable(m, 0. <= o[u = t:T] <= o_UB[u])
+    JuMP.@variable(m,   x[t:T, 1:J] >= 0.)
+    JuMP.@variable(m, x_B[t:T, 1:J] >= 0.)
+    JuMP.@variable(m, x_H[t:T, 1:J] >= 0.)
+    JuMP.@constraint(m, [u=t:T], sum(T_Y[j] * y[u,j] + x[u,j] for j in 1:J) - o[u] <= time_UB[u])
+    JuMP.@constraint(m, [u=t:T, j=1:J], x[u,j] <= production_UB[j] * y[u,j])
+    JuMP.@constraint(m, [u=t:T, j=1:J], x_H[u,j] + x[u,j] <= inventory_UB[j])
+    JuMP.@constraint(m, [j=1:J], x_B[t,j] - x_H[t,j] + 0. - 0. + 0. == D_s[t,j])
+    JuMP.@constraint(m, [u=t+1:T, j=1:J], x_B[u,j] - x_H[u,j] + x_H[u-1,j] - x_B[u-1,j] + x[u-1,j] == D_s[u,j])
+    costs_oto = u -> sum(c_B[u] * x_B[u,j] + c_H * x_H[u,j] + c_Y[j] * y[u,j] for j in 1:J)
+    JuMP.@objective(m, Min, sum(c_O * o[u] + costs_oto(u) for u in t:T))
+    JuMP.optimize!(m)
+    @assert JuMP.termination_status(m) == JuMP.OPTIMAL "$(JuMP.termination_status(m))"
+    JuMP.objective_value(m)
 end
-
