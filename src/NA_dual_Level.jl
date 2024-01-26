@@ -428,6 +428,35 @@ end
 # └   rel_gap = 4.493508987666265e-5
 # [ Info: 😊 dual problem convergent
 
+# # # # # # # # # # # # # # # # # # 📚 at N = 10000, the logs of level method with ||⋅||_2 to regularize will incur NUMERICAL_ERROR
+# ┌ Info: ▶ level_ite = 2
+# │   ObjBound = 1.0975483801195571
+# │   ObjValue = 0.9045941936731429
+# └   rel_gap = 0.21330469264114515
+# ┌ Info: ▶ level_ite = 3
+# │   ObjBound = 1.0975483801195571
+# │   ObjValue = 0.9045941936731429
+# └   rel_gap = 0.21330469264114515
+# ┌ Info: ▶ level_ite = 4
+# │   ObjBound = 1.0975483801195571
+# │   ObjValue = 0.9045941936731429
+# └   rel_gap = 0.21330469264114515
+# ┌ Info: ▶ level_ite = 5
+# │   ObjBound = 0.9898702204571557
+# │   ObjValue = 0.9045941936731429
+# └   rel_gap = 0.09426992499006201
+# ❌ ERROR: LoadError: in regularization problem, terminating with NUMERICAL_ERROR.
+# Stacktrace:
+#  [1] error(s::String)
+#    @ Base .\error.jl:35
+#  [2] top-level scope
+#    @ K:\order1\src\a.jl:260
+#  [3] include(fname::String)
+#    @ Base.MainInclude .\client.jl:478
+#  [4] top-level scope
+#    @ REPL[1]:1
+# in expression starting at K:\order1\src\a.jl:170
+
 # julia> l_x_2[1]
 # Dict{Tuple{Int64, Int64, Int64}, Float64} with 18 entries:
 #   (1, 3, 4) => 9.67782e-6
