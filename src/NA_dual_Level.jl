@@ -8,8 +8,10 @@ using Logging
 
 # 26/01/24
 # solving the NA dual problem with ||⋅||_1 level method 
-# sample size S = 5000
-# detailed log @eof
+# sample size up to S = 10000, detailed log @eof
+# mode_1: ub from policy 4p1, lb from EVPI
+# mode_2: ub the same, lb from NA dual problem
+# comparing the 2 modes, when S = 10000, gap reduced from 17.76% to 11.74%
 
 function JumpModel(env = GRB_ENV)
     m = JuMP.direct_model(Gurobi.Optimizer(env))
@@ -382,3 +384,67 @@ end
 #   (3, 1, 4) => 1.60817e-5
 #   (2, 1, 3) => 2.01066e-6
 # ✏️ the magnitude is small, because corr constrs' coefficients are large.
+
+# # # # # # # # # # # # # # # # # # 📚 at N = 10000, the logs of level method
+# ┌ Info: ▶ level_ite = 2
+# │   ObjBound = 1.0975483801195571
+# │   ObjValue = 0.9045941936731429
+# └   rel_gap = 0.21330469264114515
+# ┌ Info: ▶ level_ite = 3
+# │   ObjBound = 1.0975483801195571
+# │   ObjValue = 0.9045941936731429
+# └   rel_gap = 0.21330469264114515
+# ┌ Info: ▶ level_ite = 4
+# │   ObjBound = 1.0975483801195571
+# │   ObjValue = 0.9045941936731429
+# └   rel_gap = 0.21330469264114515
+# ┌ Info: ▶ level_ite = 5
+# │   ObjBound = 1.0975483801195571
+# │   ObjValue = 0.9045941936731429
+# └   rel_gap = 0.21330469264114515
+# ┌ Info: ▶ level_ite = 6
+# │   ObjBound = 0.9800522556094872
+# │   ObjValue = 0.9045941936731429
+# └   rel_gap = 0.0834164783105048
+# ┌ Info: ▶ level_ite = 7
+# │   ObjBound = 0.9749612650265259
+# │   ObjValue = 0.9355526034778878
+# └   rel_gap = 0.04212340535651081
+# ┌ Info: ▶ level_ite = 8
+# │   ObjBound = 0.9721779806892356
+# │   ObjValue = 0.9591725866315086
+# └   rel_gap = 0.013558971804438467
+# ┌ Info: ▶ level_ite = 9
+# │   ObjBound = 0.9701307659337044
+# │   ObjValue = 0.9666193123529042
+# └   rel_gap = 0.0036327161437037197
+# ┌ Info: ▶ level_ite = 10
+# │   ObjBound = 0.9690718875611763
+# │   ObjValue = 0.968539728056875
+# └   rel_gap = 0.0005494451997017615
+# ┌ Info: ▶ level_ite = 11
+# │   ObjBound = 0.9687856207961784
+# │   ObjValue = 0.9687420902832842
+# └   rel_gap = 4.493508987666265e-5
+# [ Info: 😊 dual problem convergent
+
+# julia> l_x_2[1]
+# Dict{Tuple{Int64, Int64, Int64}, Float64} with 18 entries:
+#   (1, 3, 4) => 9.67782e-6
+#   (2, 2, 4) => 6.0574e-6
+#   (2, 3, 4) => 9.55747e-6
+#   (1, 2, 3) => -2.07992e-7
+#   (1, 1, 2) => 1.08716e-6
+#   (3, 2, 4) => 7.68316e-6
+#   (1, 3, 3) => 6.82748e-7
+#   (1, 1, 4) => 1.40954e-5
+#   (2, 2, 3) => 9.10678e-8
+#   (3, 3, 4) => 1.064e-5
+#   (2, 3, 3) => 7.88538e-7
+#   (2, 1, 4) => 1.6011e-5
+#   (1, 2, 2) => 1.62792e-6
+#   (1, 1, 3) => -6.89194e-7
+#   (1, 3, 2) => 1.78516e-6
+#   (1, 2, 4) => 5.82655e-6
+#   (3, 1, 4) => 1.6471e-5
+#   (2, 1, 3) => 1.98466e-6
