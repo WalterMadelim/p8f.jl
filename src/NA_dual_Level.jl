@@ -221,38 +221,6 @@ for lv_ite in 1:typemax(Int)
                 break
             end
         end
-        m = JumpModel() 
-        # lv_ite == 4 && JuMP.unset_silent(m)
-        if true # this is a copy
-            JuMP.@variable(m, l_x[t = 1:T-1, j = 1:J, u = t+1:T]) # dual weights
-            JuMP.@variable(m, th[1:S])
-            for s in 1:S # cutting planes of θ
-                D_s = D3[:, :, s] # load random data
-                Ups_s = U3[:, :, s] # used to calculate closed-form conditional Expectations
-                for coeff_dict in Vhat[s]
-                    o = coeff_dict["o"]
-                    x = coeff_dict["x"]
-                    y = coeff_dict["y"]
-                    x_B = coeff_dict["x_B"]
-                    x_H = coeff_dict["x_H"]
-                    costs_oto = u -> sum(c_B[u] * x_B[u,j] + c_H * x_H[u,j] + c_Y[j] * y[u,j] for j in 1:J)
-                    primal_obj = sum(
-                            c_O * o[u] + costs_oto(u) 
-                        for u in 1:T
-                    )
-                    penal_with_dual_upper_vars = sum(
-                            x[t, j] * sum(
-                                    l_x[t, j, u] * ( D_s[u, j] - MU[u, j] * (1. + rhoY * rho^(u - t) * (Ups_s[t, j] - 1.)) )
-                                for u in t+1:T
-                            )
-                        for t in 1:T-1, j in 1:J
-                    )
-                    JuMP.@constraint(m, 1e-4 * th[s] <= 1e-4 * primal_obj + 1e-4 * penal_with_dual_upper_vars)
-                end
-            end
-            JuMP.@variable(m, obj3a <= obj3a_UB)
-            JuMP.@constraint(m, obj3a == fill(1/S, S)' * th)
-        end
         JuMP.@constraint(m, obj3a >= .7 * ub[begin] + .3 * lb[begin]) # (EC.4)
         JuMP.@variable(m, a_l_x[t = 1:T-1, j = 1:J, u = t+1:T]) # abs's
         JuMP.@constraint(m, [t = 1:T-1, j = 1:J, u = t+1:T], a_l_x[t, j, u] >= l_x[t,j,u] - l_x_2[2][(t,j,u)])
