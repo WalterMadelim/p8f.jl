@@ -117,6 +117,7 @@ JuMP.@variable(m, 0. <= g[1:3] <= 1.)
 JuMP.@constraint(m, sum(g) <= 1.8)
 JuMP.@constraint(m, g[1] + g[2] <= 1.2)
 d = 40. * g + d_bias_vec # 𝔘 till this line
+JuMP.@objective(m, Max, sum(d))
 JuMP.optimize!(m)
 @assert JuMP.termination_status(m) == JuMP.OPTIMAL "Uncertainty $(JuMP.termination_status(m))"
 d = JuMP.value.(d)
