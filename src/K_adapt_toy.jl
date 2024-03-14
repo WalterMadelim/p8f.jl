@@ -21,6 +21,9 @@ node_list = [ [[Float64[1, 1]], Vector{Float64}[]] , [Vector{Float64}[], [Float6
 # node_list[2][1] # list of significant scenes handled by plan #1
 # node_list[3][2][1] :: Vector{Float64} # the 1st significant scene handled by plan #2
 
+# actually we only need one of the two, owing to the symmetry
+node_list = [ [[Float64[1, 1]], Vector{Float64}[]] ]
+
 function algorithm()
     incumbent = Dict(
         "th" => Inf,
