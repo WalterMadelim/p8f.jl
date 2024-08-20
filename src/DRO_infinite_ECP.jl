@@ -1,52 +1,54 @@
-import LinearAlgebra
-import Random
 import JuMP
 import Gurobi
 import MosekTools
+import Optim
+import Random
 using Logging
 
 # DRO_infinite_ECP
-# find_q() function is deprecated
-# other functions are well-organized
+# result:
+# soltuion theta = 0.066711, x = [1.000000097388703, 0.0, -1.362894644522967e-7, 1.5082664962619764e-8, 0.0, -2.938014240752205e-8, 0.0, -2.0546616284617336e-8, 0.0, 0.0, 0.0, 0.0, -2.4691652869586892e-8, -2.0275509139942546e-8, 0.0, 4.383556681780431e-8, 1.581166875212968e-8, 0.0, 3.311643113653387e-8, 2.2815141114671097e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.632146075355219e-8, 1.9456542150000502e-8, 4.567272366355702e-9, -3.5054654924732855e-8, 0.0, 5.939321857563046e-9, 0.0, 0.0, 0.0, 2.3580824942963586e-8, 0.0, -5.2778413015427796e-9, 0.0, -2.5162411013659196e-8, 0.0, -2.0685635166732063e-8, 0.0, 0.0, 8.72307921269387e-9, -7.022114511968672e-9, 2.607041580577255e-8, 0.0, -1.778942393393379e-8, 0.0, 0.06671067234576002]
+# At the 1st iteration, a violating `q` is found, but there's no more in later iterations.
+# objective is 0.06671. the interesting point is that this value is virtually the value of theta
 # 2024/8/20
 
-column(x::JuMP.VariableRef) = Gurobi.c_column(JuMP.backend(JuMP.owner_model(x)), JuMP.index(x))
 global_logger(ConsoleLogger(Info))
 GRB_ENV = Gurobi.Env()
-function JumpModel(i)
-    if i == 0 # the most useful
-        m = JuMP.Model(() -> Gurobi.Optimizer(GRB_ENV))
-    elseif i == 1 # generic convex conic program
-        m = JuMP.Model(MosekTools.Optimizer)
-    elseif i == 2 # if you need Gurobi callback
-        m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
-    end
-    # JuMP.set_silent(m) # use JuMP.unset_silent(m) to debug when it is needed
-    return m
-end
-if true # 🫠 data gen
+if true # data gen
     function initial_trial_x_generation()
-        [0.7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.1]
+        a = zeros(N+1)
+        a[1] = 1.
+        a
     end
     function a1(formal_x) -sigma .* formal_x[begin:end-1] end
     function b1(formal_x) -[mu; 1]' * formal_x end
-    N = 10
-    CTPLN_INI_BND = -10. # ⚠️ make sure that after optimization, the obj is distant from this bound
-    l_end = [-17.9563, -24.8116, -19.0056, -13.8703, -10.0167,  -9.0485, -4.94781, -3.9858, -7.0234, -6.2587]
-    h_end = [19.3746, 28.0439, 21.0487, 14.7279, 17.8975,       10.2473, 4.94781, 4.9472, 6.9827, 8.2472]
-    mu = ( h_end .+ l_end ) / 2
-    sigma = ( h_end .- l_end ) / 2
+    N = 50
+    CTPLN_INI_BND = -53.
+    CTPLN_GAP_TOL = 5e-5
+    VIO_BRINK = -5e-5
+    mu = [n/250 for n in 1:N]
+    sigma = [N * sqrt(2 * n) for n in 1:N]/1000
     ε = .1
     if true # global containers
         qs = one(ones(N, N))
         x_incumbent = initial_trial_x_generation() # the global xt (the incumbent)
     end
 end
-function club_suit(formal_x, qs) # 🫠
+function JumpModel(i)
+    if i == 0 # the most frequently used
+        m = JuMP.Model(() -> Gurobi.Optimizer(GRB_ENV))
+    elseif i == 1 # generic convex conic program
+        m = JuMP.Model(MosekTools.Optimizer)
+    elseif i == 2 # if you need Gurobi callback
+        m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
+    end
+    JuMP.set_silent(m) # use JuMP.unset_silent(m) to debug when it is needed
+    return m
+end
+function ECP_sup_subprogram(formal_x, qs)
     K = 2
     J = size(qs)[2]
     m = JumpModel(1) # a conic optimization
-    JuMP.set_silent(m)
     JuMP.@variable(m, η[1:K] >= 0.)
     JuMP.@constraint(m, sum(η) == 1.)
     JuMP.@variable(m, ξ[1:N, 1:K])
@@ -57,11 +59,8 @@ function club_suit(formal_x, qs) # 🫠
     JuMP.@constraint(m, [n = 1:N, k = 1:K], ξ[n, k] <= η[k])
     JuMP.@constraint(m, [j = 1:J, k = 1:K], [qs[:, j]' * ξ[:, k] - η[k] * .5 * (qs[:, j]' * qs[:, j]), η[k], ζ[j, k]] in JuMP.MOI.ExponentialCone())
     JuMP.@objective(m, Max, a1(formal_x)' * ξ[:, 1] + b1(formal_x) * η[1])
-    # print("\r ♣ ECP starts >")
-    # @warn "trial x for the ECP is" x = formal_x[begin:end-1] theta = formal_x[end]
     JuMP.optimize!(m)
     status = JuMP.termination_status(m)
-    # print("\r ♣ ECP ends successfully <")
     if status == JuMP.OPTIMAL
         return JuMP.objective_value(m), JuMP.value.(ξ), JuMP.value.(η)
     elseif status == JuMP.SLOW_PROGRESS
@@ -71,17 +70,16 @@ function club_suit(formal_x, qs) # 🫠
         error("the ♣ ECP terminate with $(status)")
     end
 end
-function cut_at(formal_x, qs) # 🫠
-    Q_value, ξ, η = club_suit(formal_x, qs)
+function cut_at(formal_x, qs)
+    Q_value, ξ, η = ECP_sup_subprogram(formal_x, qs)
     ξ, η = ξ[:, 1], η[1]
-    px::Vector{Float64} = -[ξ[n] * sigma[n] + η * mu[n] for n in 1:N] # correct
-    pth::Float64 = -η # correct
-    p0::Float64 = 0. # correct
+    px::Vector{Float64} = -[ξ[n] * sigma[n] + η * mu[n] for n in 1:N] 
+    pth::Float64 = -η
+    p0::Float64 = 0.
     Q_value, [px; pth], p0
 end
-function outer_surrogate(cutDict)  # 🫠
+function outer_surrogate(cutDict)
     m = JumpModel(0) # cutting plane optimization
-    JuMP.set_silent(m)
     JuMP.@variable(m, x[1:N] >= 0.)
     JuMP.@constraint(m, sum(x) == 1.)
     JuMP.@variable(m, θ)
@@ -96,7 +94,7 @@ function outer_surrogate(cutDict)  # 🫠
     status, cutDict_sufficient_flag = JuMP.termination_status(m), true
     if status in [JuMP.INFEASIBLE_OR_UNBOUNDED, JuMP.DUAL_INFEASIBLE]
         cutDict_sufficient_flag = false
-        JuMP.set_lower_bound(obj, CTPLN_INI_BND - 1.5)
+        JuMP.set_lower_bound(obj, CTPLN_INI_BND)
         JuMP.optimize!(m)
         status = JuMP.termination_status(m)
     end
@@ -109,7 +107,7 @@ function outer_surrogate(cutDict)  # 🫠
         return -Inf, JuMP.value.([x; θ])
     end
 end
-function outer_solve(qs)::Vector{Float64} # 🫠
+function outer_solve(qs)::Vector{Float64}
     xt = initial_trial_x_generation()
     _, px, p0 = cut_at(xt, qs) # add an initial cut to assure lower boundedness
     cutDict = Dict( # initialize cutDict
@@ -123,11 +121,11 @@ function outer_solve(qs)::Vector{Float64} # 🫠
         θ = xt[end] # record current 1st stage solution
         Q_value, px, p0 = cut_at(xt, qs)
         ub = θ + Q_value / ε
-        @assert lb <= ub + 5e-5 "lb($(lb)) > ub($(ub)), check whether they are specified correctly!"
+        @assert lb <= ub + CTPLN_GAP_TOL "lb($(lb)) > ub($(ub)), check whether they are specified correctly!"
         gap = ub-lb
         @debug "▶ ▶ ▶ ite = $ite" lb ub gap
-        if gap < 5e-5
-            @info " 😊 outer problem ub - lb = gap = $gap < 5e-5, ub = $(ub)"
+        if gap < CTPLN_GAP_TOL
+            @info " 😊 outer problem ub - lb = $gap < $CTPLN_GAP_TOL, ub = $(ub)"
             return xt
         end
         push!(cutDict["id"], 1+length(cutDict["id"]))
@@ -136,8 +134,8 @@ function outer_solve(qs)::Vector{Float64} # 🫠
         push!(cutDict["p0"], p0)
     end
 end
-function worst_pd(x, qs) # 🫠 after the accomplishment of the cutting plane method
-    _, ξ, η = club_suit(x, qs)
+function worst_pd(x, qs) # after the accomplishment of the cutting plane method
+    _, ξ, η = ECP_sup_subprogram(x, qs)
     @info "worst_pd: the probability is $η"
     # bitVec = η .> 7e-5 # omit those events with negligible Pr
     # ξ, η = ξ[:, bitVec], η[bitVec]
@@ -146,8 +144,39 @@ function worst_pd(x, qs) # 🫠 after the accomplishment of the cutting plane me
         "P" => η
     )
 end
+function objfun(q, pd) .5 * q' * q - log(sum(P * exp(q' * z) for (z, P) in zip(pd["z"], pd["P"]))) end
 
-function find_q(pd::Dict) # ⚠️⚠️⚠️ Gurobi's NL function is revolting + nasty, If it's not QP, Don't use Gurobi
+Random.seed!(86)
+for mainIte in 1:typemax(Int)
+    xt = outer_solve(qs)
+    x_incumbent .= xt
+    pd = worst_pd(xt, qs)
+    gen_res_at = q0 -> Optim.optimize(q -> objfun(q, pd), q0, Optim.NewtonTrustRegion())
+    find_already = [false]
+    vio_q = Inf * ones(N)
+    for ite in 1:400
+        q0 = 10 * rand() * (2 * (rand(N) .- .5))
+        res = gen_res_at(q0)
+        qt, vt = Optim.minimizer(res), Optim.minimum(res)
+        if vt < VIO_BRINK
+            vio_q .= qt
+            find_already[1] = true
+            break
+        end
+    end
+    if find_already[1] == false
+        @error "we can't find a vio_q at this stage"
+        return xt
+    else
+        qs = [qs vio_q]
+    end
+end
+
+
+
+############################################## deprecated ##############################################
+function ERRoneous_find_q(pd::Dict) # ⚠️⚠️⚠️ Gurobi's NL function is revolting, If it's not QP, Don't use Gurobi
+    column(x::JuMP.VariableRef) = Gurobi.c_column(JuMP.backend(JuMP.owner_model(x)), JuMP.index(x))
     function objfun(q, pd) .5 * q' * q - log(sum(P * exp(q' * z) for (z, P) in zip(pd["z"], pd["P"]))) end
     function my_callback_function(cb_data, cb_where::Cint)
         if cb_where == Gurobi.GRB_CB_MIPSOL
@@ -221,7 +250,8 @@ function find_q(pd::Dict) # ⚠️⚠️⚠️ Gurobi's NL function is revolting
     end
 end
 
-xt = outer_solve(qs)
-pd = worst_pd(xt, qs)
-qt = find_q(pd)
+
+
+
+
 
