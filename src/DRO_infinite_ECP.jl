@@ -3,14 +3,15 @@ import Gurobi
 import MosekTools
 import Optim
 import Random
+import Distributions
 using Logging
 
-# DRO_infinite_ECP
-# result:
-# soltuion theta = 0.066711, x = [1.000000097388703, 0.0, -1.362894644522967e-7, 1.5082664962619764e-8, 0.0, -2.938014240752205e-8, 0.0, -2.0546616284617336e-8, 0.0, 0.0, 0.0, 0.0, -2.4691652869586892e-8, -2.0275509139942546e-8, 0.0, 4.383556681780431e-8, 1.581166875212968e-8, 0.0, 3.311643113653387e-8, 2.2815141114671097e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.632146075355219e-8, 1.9456542150000502e-8, 4.567272366355702e-9, -3.5054654924732855e-8, 0.0, 5.939321857563046e-9, 0.0, 0.0, 0.0, 2.3580824942963586e-8, 0.0, -5.2778413015427796e-9, 0.0, -2.5162411013659196e-8, 0.0, -2.0685635166732063e-8, 0.0, 0.0, 8.72307921269387e-9, -7.022114511968672e-9, 2.607041580577255e-8, 0.0, -1.778942393393379e-8, 0.0, 0.06671067234576002]
-# At the 1st iteration, a violating `q` is found, but there's no more in later iterations.
-# objective is 0.06671. the interesting point is that this value is virtually the value of theta
-# 2024/8/20
+# from line 1 to line 178
+# cost can goes down from 0.023 to <= 0.00076
+# but this is the only case that can iterate successfully with a continual descending cost
+# the current code is extremely unstable
+# even if you change the initial trial x, you may get lost
+# 2024/8/23
 
 global_logger(ConsoleLogger(Info))
 GRB_ENV = Gurobi.Env()
@@ -22,12 +23,11 @@ if true # data gen
     end
     function a1(formal_x) -sigma .* formal_x[begin:end-1] end
     function b1(formal_x) -[mu; 1]' * formal_x end
-    N = 50
+    N = 10
     CTPLN_INI_BND = -53.
     CTPLN_GAP_TOL = 5e-5
-    VIO_BRINK = -5e-5
-    mu = [n/250 for n in 1:N]
-    sigma = [N * sqrt(2 * n) for n in 1:N]/1000
+    mu = [n/50 for n in 1:N]
+    sigma = [N * sqrt(2 * n) for n in 1:N]/200
     ε = .1
     if true # global containers
         qs = one(ones(N, N))
@@ -45,6 +45,7 @@ function JumpModel(i)
     JuMP.set_silent(m) # use JuMP.unset_silent(m) to debug when it is needed
     return m
 end
+
 function ECP_sup_subprogram(formal_x, qs)
     K = 2
     J = size(qs)[2]
@@ -125,7 +126,9 @@ function outer_solve(qs)::Vector{Float64}
         gap = ub-lb
         @debug "▶ ▶ ▶ ite = $ite" lb ub gap
         if gap < CTPLN_GAP_TOL
-            @info " 😊 outer problem ub - lb = $gap < $CTPLN_GAP_TOL, ub = $(ub)"
+            @debug " 😊 outer problem ub - lb = $gap < $CTPLN_GAP_TOL, ub = $(ub)"
+            xtmp = round.(xt[1:end-1]; digits = 4)
+            @info "x at $xtmp, θ at $θ, inducing cost $ub"
             return xt
         end
         push!(cutDict["id"], 1+length(cutDict["id"]))
@@ -136,7 +139,7 @@ function outer_solve(qs)::Vector{Float64}
 end
 function worst_pd(x, qs) # after the accomplishment of the cutting plane method
     _, ξ, η = ECP_sup_subprogram(x, qs)
-    @info "worst_pd: the probability is $η"
+    @debug "worst_pd: the probability is $η"
     # bitVec = η .> 7e-5 # omit those events with negligible Pr
     # ξ, η = ξ[:, bitVec], η[bitVec]
     Dict(
@@ -153,12 +156,14 @@ for mainIte in 1:typemax(Int)
     pd = worst_pd(xt, qs)
     gen_res_at = q0 -> Optim.optimize(q -> objfun(q, pd), q0, Optim.NewtonTrustRegion())
     find_already = [false]
-    vio_q = Inf * ones(N)
-    for ite in 1:400
-        q0 = 10 * rand() * (2 * (rand(N) .- .5))
+    vio_q = NaN * ones(N)
+    d = Distributions.Uniform(-5., 5.)
+    for ite in 1:100
+        q0 = rand(d, N)
         res = gen_res_at(q0)
         qt, vt = Optim.minimizer(res), Optim.minimum(res)
-        if vt < VIO_BRINK
+        if vt < -1e-6
+            @info "find the q with vioval = $vt"
             vio_q .= qt
             find_already[1] = true
             break
@@ -171,6 +176,14 @@ for mainIte in 1:typemax(Int)
         qs = [qs vio_q]
     end
 end
+
+
+
+
+
+
+
+
 
 
 
