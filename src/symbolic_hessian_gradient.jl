@@ -2,6 +2,7 @@ import LinearAlgebra
 using Symbolics
 
 # Use symbolics.jl to derive gradient vector and Hessian Matrix
+# ⚠️⚠️ you can NOT use x' * y to express an inner product
 # 24/8/24
 
 function ip(x, y) LinearAlgebra.dot(x, y) end # this function is more versatile than x' * y
