@@ -4,6 +4,8 @@ import MosekTools
 import Optim
 import Random
 import Distributions
+import LinearAlgebra
+import Symbolics
 using Logging
 
 # from line 1 to line 178
@@ -11,7 +13,11 @@ using Logging
 # but this is the only case that can iterate successfully with a continual descending cost
 # the current code is extremely unstable
 # even if you change the initial trial x, you may get lost
+# we can use manual input gradient and Hessian, with the help of Symbolics.jl, but it doesn't solve the unstable problem
 # 2024/8/23
+
+function ip(x, y) LinearAlgebra.dot(x, y) end # this function is more versatile than x' * y
+function qf(x, A, y) LinearAlgebra.dot(x, A, y) end
 
 global_logger(ConsoleLogger(Info))
 GRB_ENV = Gurobi.Env()
@@ -24,6 +30,7 @@ if true # data gen
     function a1(formal_x) -sigma .* formal_x[begin:end-1] end
     function b1(formal_x) -[mu; 1]' * formal_x end
     N = 10
+    K = 2
     CTPLN_INI_BND = -53.
     CTPLN_GAP_TOL = 5e-5
     mu = [n/50 for n in 1:N]
@@ -34,6 +41,7 @@ if true # data gen
         x_incumbent = initial_trial_x_generation() # the global xt (the incumbent)
     end
 end
+
 function JumpModel(i)
     if i == 0 # the most frequently used
         m = JuMP.Model(() -> Gurobi.Optimizer(GRB_ENV))
@@ -137,28 +145,54 @@ function outer_solve(qs)::Vector{Float64}
         push!(cutDict["p0"], p0)
     end
 end
-function worst_pd(x, qs) # after the accomplishment of the cutting plane method
-    _, ξ, η = ECP_sup_subprogram(x, qs)
-    @debug "worst_pd: the probability is $η"
-    # bitVec = η .> 7e-5 # omit those events with negligible Pr
-    # ξ, η = ξ[:, bitVec], η[bitVec]
-    Dict(
-        "z" => [ξ[:, i] / η[i] for i in eachindex(η)],
-        "P" => η
-    )
-end
-function objfun(q, pd) .5 * q' * q - log(sum(P * exp(q' * z) for (z, P) in zip(pd["z"], pd["P"]))) end
 
+# function worst_pd(x, qs) # after the accomplishment of the cutting plane method
+#     _, ξ, η = ECP_sup_subprogram(x, qs)
+#     @debug "worst_pd: the probability is $η"
+#     # bitVec = η .> 7e-5 # omit those events with negligible Pr
+#     # ξ, η = ξ[:, bitVec], η[bitVec]
+#     Dict(
+#         "z" => [ξ[:, i] / η[i] for i in eachindex(η)],
+#         "P" => η
+#     )
+# end
+
+
+function objfun(q, ξ, η) .5 * ip(q, q) - log(lgrand(q, ξ, η)) end
+function egrand(q, ξ, k) ip(q, ξ[:, k]) end
+function lgrand(q, ξ, η) sum(η[i] * exp( egrand(q, ξ, i) ) for i in 1:K) end
+function cmlgrand(q, ξ, η, m) sum(ξ[m, i] * η[i] * exp( egrand(q, ξ, i) ) for i in 1:K) end
+function cnmlgrand(q, ξ, η, n, m) sum(ξ[n, i] * ξ[m, i] * η[i] * exp( egrand(q, ξ, i) ) for i in 1:K) end
 Random.seed!(86)
+
 for mainIte in 1:typemax(Int)
     xt = outer_solve(qs)
     x_incumbent .= xt
-    pd = worst_pd(xt, qs)
-    gen_res_at = q0 -> Optim.optimize(q -> objfun(q, pd), q0, Optim.NewtonTrustRegion())
+    _, ξ, η = ECP_sup_subprogram(xt, qs)
+    for i in eachindex(η)
+        ξ[:, i] .= ξ[:, i] ./ η[i]
+    end
+    f = q -> objfun(q, ξ, η)
+    function g!(G, q)
+        for n in 1:N
+            G[n] = q[n] - sum(ξ[n, k] * η[k] * exp(egrand(q, ξ, k)) for k in 1:K) / lgrand(q, ξ, η)
+        end
+    end
+    function h!(H, q)
+        for n in 1:N, m in 1:N
+            if m != n
+                H[n, m] = cmlgrand(q, ξ, η, m)*cmlgrand(q, ξ, η, n) / (lgrand(q, ξ, η)^2) - cnmlgrand(q, ξ, η, n, m) / lgrand(q, ξ, η)
+            else
+                H[n, n] = 1 - cnmlgrand(q, ξ, η, n, n) / lgrand(q, ξ, η) + cmlgrand(q, ξ, η, n) * (cmlgrand(q, ξ, η, n) / (lgrand(q, ξ, η)^2))
+            end
+        end
+    end
+    gen_res_at = q0 -> Optim.optimize(f, g!, h!, q0, Optim.NewtonTrustRegion()) # this option, although strenuous, cannot give the successful output
+    gen_res_at = q0 -> Optim.optimize(f, q0, Optim.NewtonTrustRegion()) # this auto diff can run successfully
     find_already = [false]
     vio_q = NaN * ones(N)
     d = Distributions.Uniform(-5., 5.)
-    for ite in 1:100
+    for ite in 1:1000
         q0 = rand(d, N)
         res = gen_res_at(q0)
         qt, vt = Optim.minimizer(res), Optim.minimum(res)
@@ -176,6 +210,8 @@ for mainIte in 1:typemax(Int)
         qs = [qs vio_q]
     end
 end
+
+
 
 
 
