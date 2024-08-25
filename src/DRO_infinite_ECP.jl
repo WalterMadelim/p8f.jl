@@ -28,7 +28,7 @@ if true # data gen
         a
     end
     function a1(formal_x) -sigma .* formal_x[begin:end-1] end
-    function b1(formal_x) -[mu; 1]' * formal_x end
+    function b1(formal_x) ip(-[mu; 1], formal_x) end
     N = 50
     K = 2
     CTPLN_INI_BND = -5.
@@ -36,7 +36,7 @@ if true # data gen
     mu = [n/250 for n in 1:N]
     sigma = [N * sqrt(2 * n) for n in 1:N]/1000
     ε = 0.05
-    DEN = 4
+    DEN = 3.8
     if true # global containers
         qs = -one(ones(N, N))
         x_incumbent = initial_trial_x_generation() # the global xt (the incumbent)
@@ -77,11 +77,11 @@ function oneshot_inf_program(qs) # 🫠
         JuMP.@constraint(ι, [k=1:K, n=1:N], w1[k, n] - w2[k, n] + r[k, n] == 0.)
         JuMP.@constraint(ι, [k=1:K], t[k] >= sum(w1[k, :]) + sum(w2[k, :]))         # dual( K(W) ) ends
         k = 1
-        JuMP.@constraint(ι, α - b1(formal_x) + sum(l[k, j] * ip(qs[:, j]/2, qs[:, j]) for j in 1:J) - sum(m[k, :]) - t[k] >= 0.)
+        JuMP.@constraint(ι, α - b1(formal_x) + sum(l[k, j] * ip(qs[:, j]/DEN, qs[:, j]) for j in 1:J) - sum(m[k, :]) - t[k] >= 0.)
         JuMP.@constraint(ι, [n=1:N], β[n] - a1(formal_x)[n] - r[k, n] - sum(l[k, j] * qs[n, j] for j in 1:J) == 0.)
         JuMP.@constraint(ι, [j=1:J], γ[j] - n[k, j] == 0.)
         k = 2
-        JuMP.@constraint(ι, α + sum(l[k, j] * ip(qs[:, j]/2, qs[:, j]) for j in 1:J) - sum(m[k, :]) - t[k] >= 0.)
+        JuMP.@constraint(ι, α + sum(l[k, j] * ip(qs[:, j]/DEN, qs[:, j]) for j in 1:J) - sum(m[k, :]) - t[k] >= 0.)
         JuMP.@constraint(ι, [n=1:N], β[n] - r[k, n] - sum(l[k, j] * qs[n, j] for j in 1:J) == 0.)
         JuMP.@constraint(ι, [j=1:J], γ[j] - n[k, j] == 0.)
     end
@@ -139,11 +139,11 @@ function ECP_sub_inf_program(formal_x, qs) # 🫠 used to derive η and ξ
         JuMP.@constraint(ι, [k=1:K, n=1:N], w1[k, n] - w2[k, n] + r[k, n] == 0.)
         JuMP.@constraint(ι, [k=1:K], t[k] >= sum(w1[k, :]) + sum(w2[k, :]))         # dual( K(W) ) ends
         k = 1
-        JuMP.@constraint(ι, eta1, α - b1(formal_x) + sum(l[k, j] * ip(qs[:, j]/2, qs[:, j]) for j in 1:J) - sum(m[k, :]) - t[k] >= 0.)
+        JuMP.@constraint(ι, eta1, α - b1(formal_x) + sum(l[k, j] * ip(qs[:, j]/DEN, qs[:, j]) for j in 1:J) - sum(m[k, :]) - t[k] >= 0.)
         JuMP.@constraint(ι, xi1[n=1:N], β[n] - a1(formal_x)[n] - r[k, n] - sum(l[k, j] * qs[n, j] for j in 1:J) == 0.)
         JuMP.@constraint(ι, zeta1[j=1:J], γ[j] - n[k, j] == 0.)
         k = 2
-        JuMP.@constraint(ι, eta2, α + sum(l[k, j] * ip(qs[:, j]/2, qs[:, j]) for j in 1:J) - sum(m[k, :]) - t[k] >= 0.)
+        JuMP.@constraint(ι, eta2, α + sum(l[k, j] * ip(qs[:, j]/DEN, qs[:, j]) for j in 1:J) - sum(m[k, :]) - t[k] >= 0.)
         JuMP.@constraint(ι, xi2[n=1:N], β[n] - r[k, n] - sum(l[k, j] * qs[n, j] for j in 1:J) == 0.)
         JuMP.@constraint(ι, zeta2[j=1:J], γ[j] - n[k, j] == 0.)
     end
