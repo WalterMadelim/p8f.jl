@@ -9,6 +9,22 @@ JuMP.termination_status(m)
 JuMP.value(x)
 JuMP.objective_value(m)
 
+m = JuMP.Model(Ipopt.Optimizer)
+JuMP.@variable(m, x)
+JuMP.@objective(m, Min, abs(x-1)) # minimize
+JuMP.optimize!(m)
+@assert JuMP.termination_status(m) == JuMP.NUMERICAL_ERROR # we don't have derivative at opt point
+JuMP.value(x)
+JuMP.objective_value(m)
+
+
+m = JuMP.Model(Ipopt.Optimizer)
+JuMP.@variable(m, x)
+JuMP.@objective(m, Min, abs2(x-1)) # change to abs2 function can fix this
+JuMP.optimize!(m)
+@assert JuMP.termination_status(m) == JuMP.LOCALLY_SOLVED 
+JuMP.value(x)
+JuMP.objective_value(m)
 
 
 
