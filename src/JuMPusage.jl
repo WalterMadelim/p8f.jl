@@ -1,3 +1,20 @@
+using JuMP
+import Ipopt
+# Ipopt can only find a LOCAL optimal point
+m = JuMP.Model(Ipopt.Optimizer)
+JuMP.@variable(m, -1. <= x <= 4., start = 0.9) # it should be different when start = 1.1
+JuMP.@objective(m, Max, abs(x-1)) # abs, although not in C^2 function class from the strict math standpoint, can be handled by Ipopt
+JuMP.optimize!(m)
+JuMP.termination_status(m)
+JuMP.value(x)
+JuMP.objective_value(m)
+
+
+
+
+
+
+
 using JuMP, AmplNLWriter, Couenne_jll
 model = Model()
 @variable(model,x≥0)
