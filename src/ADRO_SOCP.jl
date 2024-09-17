@@ -10,6 +10,7 @@ using Logging
 # newsvendor fixed recourse ADRO problem (SOCP)
 # We have 3 methods that is descending in accuracy
 # SDP (full moment constr) -> DRO2019 (only J q's, K-piece convex obj) -> ELDR (introduce y(z, u))
+# add one practically intractable nonconvex-MIQCP method
 # 27/8/24
 
 function JumpModel(i)
@@ -362,4 +363,29 @@ function SDP()
 end
 val, valdetail, xt = SDP() 
 
+use_Theorem_9_39 = false
+if use_Theorem_9_39 # nonconvex MIQCP, very hard to solve
+    J = size(qs)[2]
+    ϝ = I + J + 1 # points of support
+    ι = JumpModel(2)
+    JuMP.@variable(ι, τ[1:ϝ] >= 0.) # probability vector
+    JuMP.@constraint(ι, sum(τ) == 1.)
+    JuMP.@variable(ι, z[1:ϝ, 1:I] >= 0.) # point masses
+    JuMP.@constraint(ι, [m = 1:ϝ, i = 1:I], z[m, i] <= SUV[i]) # support constraint
+    JuMP.@variable(ι, piece[1:ϝ, 1:K])
+    JuMP.@constraint(ι, [m = 1:ϝ, k = 1:K], piece[m, k] == ip(a(k, NaN), z[m, :]) + b(k, x_incumbent))
+    JuMP.@variable(ι, o[1:ϝ])
+    JuMP.@objective(ι, Max, ip(τ, o))
+    for m in 1:ϝ
+        errcode = Gurobi.GRBaddgenconstrMax(JuMP.backend(ι), "", column(o[m]), Cint(K), column.(piece[m, :]), Cdouble(0.))
+        @assert errcode == 0
+    end
+    JuMP.@constraint(ι, [i = 1:I], ip(τ, z[:, i]) == μ[i])
+    JuMP.@variable(ι, ℶ[1:ϝ, 1:J])
+    JuMP.@constraint(ι, [m = 1:ϝ, j = 1:J], ℶ[m, j] == ip(qs[:, j], z[m, :] .- μ)^2)
+    JuMP.@constraint(ι, [j = 1:J],  ip(τ, ℶ[:, j]) <= h(qs[:, j]))
+    JuMP.unset_silent(ι)
+    JuMP.optimize!(ι)
+    status = JuMP.termination_status(ι)
+end
 
