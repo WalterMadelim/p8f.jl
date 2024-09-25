@@ -87,7 +87,7 @@ Z = [Ldict["MAX"][c] for t in 1:T, c in 1:L]
 υ = JumpModel(0)
 JuMP.@variable(υ, u[1:T, 2:G], Bin)
 JuMP.@variable(υ, v[1:T, 2:G], Bin)
-JuMP.@variable(υ, x[0:T, 1:G], Bin)
+JuMP.@variable(υ, x[0:T, 2:G], Bin)
 # 1st-stage cost
 JuMP.@expression(υ, CGst[t = 1:T, g = 2:G], Gdict["CST"][g] * u[t, g])
 JuMP.@expression(υ, CGsh[t = 1:T, g = 2:G], Gdict["CSH"][g] * v[t, g])
@@ -103,47 +103,47 @@ JuMP.@variable(υ, ϖ[1:T, 1:W] >= 0.) # wind curtail
 JuMP.@variable(υ, ζ[1:T, 1:L] >= 0.) # load shed
 JuMP.@constraint(υ, [t = 1:T, w in 1:W], ϖ[t, w] <= Y[t, w])
 JuMP.@constraint(υ, [t = 1:T, l in 1:L], ζ[t, l] <= Z[t, l])
-JuMP.@variable(υ, p[0:T, 1:G])
 JuMP.@variable(υ, ρ[1:T, 1:G] >= 0.) # spinning reserve
-JuMP.@variable(υ, ϕ[t = 1:T, g = 1:G] >= 0.) # epi-variable of Cost_Generators
+JuMP.@variable(υ, p[0:T, 2:G]) # power output of the Generator 2:G
+JuMP.@variable(υ, ϱ[1:T] >= 0.) # power output of the slack generator, has liability for the power balance
+JuMP.@variable(υ, ϕ[1:T, 2:G] >= 0.) # epi-variable of Cost_Generators, only for 2:G
 # ★ Linking ★ 
-JuMP.@constraint(υ, ramp_left[t = 1:T, g = 2:G], -Gdict["RD"][g] * x[t, g] - Gdict["SD"][g] * v[t, g] <= p[t, g] - p[t-1, g])
-JuMP.@constraint(υ, ramp_right[t = 1:T, g = 2:G], p[t, g] - p[t-1, g] <= Gdict["RU"][g] * x[t-1, g] + Gdict["SU"][g] * u[t, g])
+JuMP.@constraint(υ, [t = 1:T, g = 2:G], -Gdict["RD"][g] * x[t, g] - Gdict["SD"][g] * v[t, g] <= p[t, g] - p[t-1, g])
+JuMP.@constraint(υ, [t = 1:T, g = 2:G], p[t, g] - p[t-1, g] <= Gdict["RU"][g] * x[t-1, g] + Gdict["SU"][g] * u[t, g])
 # generator output region
-JuMP.@constraint(υ, sys_spinning_reserve[t = 1:T], sum(ρ[t, :]) >= SRD)
-JuMP.@constraint(υ, power_output_LB[t = 1:T, g = 1:G], Gdict["PI"][g] * x[t, g] <= p[t, g])
-JuMP.@constraint(υ, power_output_UB[t = 1:T, g = 1:G], p[t, g] <= Gdict["PS"][g] * x[t, g] - ρ[t, g])
+JuMP.@constraint(υ, [t = 1:T], sum(ρ[t, :]) >= SRD) # system-level
+JuMP.@constraint(υ, [t = 1:T], ϱ[t] <= Gdict["PS"][1] - ρ[t, 1])
+JuMP.@constraint(υ, [t = 1:T, g = 2:G], Gdict["PI"][g] * x[t, g] <= p[t, g])
+JuMP.@constraint(υ, [t = 1:T, g = 2:G], p[t, g] <= Gdict["PS"][g] * x[t, g] - ρ[t, g])
 # line flow heat restriction, this constraint can be tight
 JuMP.@expression(υ, line_flow[t = 1:T, b = 1:B], sum(F[b, Wdict["n"][w]] * (Y[t, w] - ϖ[t, w]) for w in 1:W) + 
                                                 sum(F[b, Gdict["n"][g]] * p[t, g] for g in 2:G)
                                                 - sum(F[b, Ldict["n"][l]] * (Z[t, l] - ζ[t, l]) for l in 1:L))
 JuMP.@constraint(υ, heat_bound[t = 1:T, b = 1:B], -Bdict["BC"][b] <= line_flow[t, b] <= Bdict["BC"][b])
 # power balance system level
-JuMP.@constraint(υ, power_balance[t = 1:T], sum(Y[t, :]) - sum(ϖ[t, :]) + sum(p[t, :]) == sum(Z[t, :]) - sum(ζ[t, :]))
-# ★ Cost ★ 
+JuMP.@constraint(υ, power_balance[t = 1:T], sum(Y[t, :]) - sum(ϖ[t, :]) + sum(p[t, :]) + ϱ[t] == sum(Z[t, :]) - sum(ζ[t, :]))
+# ★ Cost ★
 θ = (g, p) -> Gdict["C2"][g] * p^2 + Gdict["C1"][g] * p + Gdict["C0"][g]
-JuMP.@constraint(υ, [t = 1:T, g = 1:G], ϕ[t, g] >= θ(g, p[t, g]) - (1. - x[t, g]) * θ(g, Gdict["PS"][g]))
-JuMP.@expression(υ, CGres[t = 1:T, g = 1:G], Gdict["CR"][g] * ρ[t, g])
+JuMP.@constraint(υ, [t = 1:T, g = 2:G], ϕ[t, g] >= θ(g, p[t, g]) - (1. - x[t, g]) * θ(g, Gdict["PS"][g]))
+JuMP.@expression(υ, CGres[t = 1:T, g = 1:G], Gdict["CR"][g] * ρ[t, g]) # reserve cost
 JuMP.@expression(υ, CW[t = 1:T, w = 1:W], Wdict["CW"][w] * ϖ[t, w])
 JuMP.@expression(υ, CL[t = 1:T, l = 1:L], Ldict["CL"][l] * ζ[t, l])
 JuMP.@objective(υ, Min, sum(
                     sum(CGsh[t, g] + CGst[t, g] for g in 2:G) # first stage
-                    + sum(ϕ[t, g] + CGres[t, g] for g in 1:G) 
+                    + sum(CGres[t, g] for g in 1:G) # reserve cost
+                    + sum(ϕ[t, g] for g in 2:G) + θ(1, ϱ[t])
                     + sum(CW[t, :]) + sum(CL[t, :]) 
                                                 for t in 1:T))
-for g in 1:G
+for g in 2:G
     JuMP.fix(x[0, g], Gdict["ZS"][g]; force = true)
     JuMP.fix(p[0, g], Gdict["ZP"][g]; force = true)
 end
-for t in 0:T
-    JuMP.fix(x[t, 1], 1.; force = true)
-end
-JuMP.unset_silent(υ)
 JuMP.set_attribute(υ, "NonConvex", 0)
 JuMP.optimize!(υ)
 status = JuMP.termination_status(υ)
 @assert status == JuMP.OPTIMAL
 JuMP.objective_value(υ)
+
 
 
 
