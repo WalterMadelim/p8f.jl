@@ -1,5 +1,5 @@
-function f(uu, vv, xx, YY::Matrix, ZZ::Matrix) # YY, ZZ should be in [0, 1]
-    υ = JumpModel(0)
+function f_primal(u, v, x, Y::Matrix, Z::Matrix) # YY, ZZ should be in [0, 1]
+    υ = JumpModel(0) # primal model
     # curtail and shedding
     JuMP.@variable(υ, ϖ[1:T, 1:W] >= 0.)
     JuMP.@variable(υ, ζ[1:T, 1:L] >= 0.)
@@ -40,10 +40,12 @@ function f(uu, vv, xx, YY::Matrix, ZZ::Matrix) # YY, ZZ should be in [0, 1]
     JuMP.@constraint(υ, ℵbalance[t = 1:T], sum(Wℶ["MAX"][w] * Y[t, w] - ϖ[t, w] for w in 1:W) + sum(p[t, :]) + ϱ[t] == sum(Lℶ["MAX"][l] * Z[t, l] - ζ[t, l] for l in 1:L))
     JuMP.@objective(υ, Min, sum(CW) + sum(CL) + sum(CGres) + sum(CGgen1) + sum(ϕ))
     JuMP.optimize!(υ)
+    status = JuMP.termination_status(υ)
+    @assert status == JuMP.OPTIMAL
+    JuMP.objective_value(υ)
 end
 
-
-function f(u, v, x, Y::Matrix, Z::Matrix)
+function f_dual(u, v, x, Y::Matrix, Z::Matrix)
     υ = JumpModel(0) # dual formulation
     JuMP.@variable(υ, ℵϖ[1:T, 1:W] >= 0.)
     JuMP.@variable(υ, ℵζ[1:T, 1:L] >= 0.)
@@ -97,7 +99,10 @@ function f(u, v, x, Y::Matrix, Z::Matrix)
     JuMP.@constraint(υ, [t = 1:T], [ℵQ11[t], ℵQ12[t], ℵQ13[t]] in JuMP.SecondOrderCone()) # 🍧
     JuMP.@constraint(υ, [t = 1:T, g = 2:G], [ℵQ21[t, g], ℵQ22[t, g], ℵQ23[t, g]] in JuMP.SecondOrderCone()) # 🍧
     JuMP.optimize!(υ)
+    status = JuMP.termination_status(υ)
+    @assert status == JuMP.OPTIMAL
+    JuMP.objective_value(υ)
 end
 
-
+[f_primal(u, v, x, Y, Z), f_dual(u, v, x, Y, Z)]
 
