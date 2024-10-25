@@ -1,237 +1,132 @@
-function f_primal(u, v, x, Y::Matrix, Z::Matrix) # YY, ZZ should be in [0, 1]
-    υ = JumpModel(0) # primal model
-    # curtail and shedding
-    JuMP.@variable(υ, ϖ[1:T, 1:W] >= 0.)
-    JuMP.@variable(υ, ζ[1:T, 1:L] >= 0.)
-    JuMP.@expression(υ, CW[t = 1:T, w = 1:W], Wℶ["CW"][w] * ϖ[t, w])
-    JuMP.@expression(υ, CL[t = 1:T, l = 1:L], Lℶ["CL"][l] * ζ[t, l])
-    JuMP.@constraint(υ, ℵϖ[t = 1:T, w in 1:W], ϖ[t, w] - Wℶ["MAX"][w] * Y[t, w] <= 0.)
-    JuMP.@constraint(υ, ℵζ[t = 1:T, l in 1:L], ζ[t, l] - Lℶ["MAX"][l] * Z[t, l] <= 0.)
-    # generations
-    ## reserve
-    JuMP.@variable(υ, ρ[1:T, 1:G] >= 0.)
-    JuMP.@expression(υ, CGres[t = 1:T, g = 1:G], Gℶ["CR"][g] * ρ[t, g])
-    ## slack generator, has liability for the power balance
-    JuMP.@variable(υ, ϱ[1:T] >= 0.)
-    JuMP.@variable(υ, ϱsq[1:T])
-    JuMP.@constraint(υ, [t = 1:T], [ϱsq[t] + 1, ϱsq[t] - 1, 2 * ϱ[t]] in JuMP.SecondOrderCone()) # 🍧
-    JuMP.@expression(υ, CGgen1[t = 1:T], Gℶ["C2"][1] * ϱsq[t] + Gℶ["C1"][1] * ϱ[t])
-    ## normal generators
-    JuMP.@variable(υ, p[0:T, 2:G]) # power output of the Generator 2:G
-    [ JuMP.fix(p[0, g], Gℶ["ZP"][g]; force = true) for g in 2:G ]
-    JuMP.@variable(υ, psq[1:T, 2:G])
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], [psq[t, g] + 1, psq[t, g] - 1, 2 * p[t, g]] in JuMP.SecondOrderCone()) # 🍧
-    JuMP.@expression(υ, CGgen2[t = 1:T, g = 2:G], Gℶ["C2"][g] * psq[t, g] + Gℶ["C1"][g] * p[t, g] + Gℶ["C0"][g])
-    JuMP.@variable(υ, ϕ[1:T, 2:G] >= 0.) # epi-variable of Cost_Generators, only for 2:G
-    JuMP.@constraint(υ, ℵϕ[t = 1:T, g = 2:G], CGgen2[t, g] - (1. - x[t, g]) * θ(g, Gℶ["PS"][g]) - ϕ[t, g] <= 0.)
-    # ★ Linking ★ 
-    JuMP.@constraint(υ, ℵdpl[t = 1:T, g = 2:G], -Gℶ["RD"][g] * x[t, g] - Gℶ["SD"][g] * v[t, g] + p[t-1, g] - p[t, g] <= 0.)
-    JuMP.@constraint(υ, ℵdpr[t = 1:T, g = 2:G], p[t, g] - p[t-1, g] - Gℶ["RU"][g] * x[t-1, g] - Gℶ["SU"][g] * u[t, g] <= 0.)
-    # physical constrs
-    JuMP.@constraint(υ, ℵSRD[t = 1:T], SRD - sum(ρ[t, :]) <= 0.)
-    JuMP.@constraint(υ, ℵϱ[t = 1:T], ϱ[t] + ρ[t, 1] - Gℶ["PS"][1] <= 0.)
-    JuMP.@constraint(υ, ℵPI[t = 1:T, g = 2:G], Gℶ["PI"][g] * x[t, g] - p[t, g] <= 0.)
-    JuMP.@constraint(υ, ℵPS[t = 1:T, g = 2:G], p[t, g] + ρ[t, g] - Gℶ["PS"][g] * x[t, g] <= 0.)
-    JuMP.@expression(υ, line_flow[t = 1:T, b = 1:B], sum(F[b, Wℶ["n"][w]] * (Wℶ["MAX"][w] * Y[t, w] - ϖ[t, w]) for w in 1:W) + 
-                                                sum(F[b, Gℶ["n"][g]] * p[t, g] for g in 2:G)
-                                                - sum(F[b, Lℶ["n"][l]] * (Lℶ["MAX"][l] * Z[t, l] - ζ[t, l]) for l in 1:L))
-    JuMP.@constraint(υ, ℵlfl[t = 1:T, b = 1:B], -Bℶ["BC"][b] <= line_flow[t, b])
-    JuMP.@constraint(υ, ℵlfr[t = 1:T, b = 1:B], line_flow[t, b] <= Bℶ["BC"][b])
-    JuMP.@constraint(υ, ℵbalance[t = 1:T], sum(Wℶ["MAX"][w] * Y[t, w] - ϖ[t, w] for w in 1:W) + sum(p[t, :]) + ϱ[t] == sum(Lℶ["MAX"][l] * Z[t, l] - ζ[t, l] for l in 1:L))
-    JuMP.@objective(υ, Min, sum(CW) + sum(CL) + sum(CGres) + sum(CGgen1) + sum(ϕ))
-    JuMP.optimize!(υ)
-    status = JuMP.termination_status(υ)
-    @assert status == JuMP.OPTIMAL
-    JuMP.objective_value(υ)
-end
-
-function f_dual(u, v, x, Y::Matrix, Z::Matrix)
-    υ = JumpModel(0) # dual formulation
-    JuMP.@variable(υ, ℵϖ[1:T, 1:W] >= 0.)
-    JuMP.@variable(υ, ℵζ[1:T, 1:L] >= 0.)
-    JuMP.@variable(υ, ℵϕ[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵdpl[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵdpr[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵSRD[1:T] >= 0.)
-    JuMP.@variable(υ, ℵϱ[1:T] >= 0.)
-    JuMP.@variable(υ, ℵPI[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵPS[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵbalance[1:T])
-    JuMP.@variable(υ, ℵlfl[1:T, 1:B] >= 0.)
-    JuMP.@variable(υ, ℵlfr[1:T, 1:B] >= 0.)
-    JuMP.@variable(υ, ℵQ11[1:T])
-    JuMP.@variable(υ, ℵQ12[1:T])
-    JuMP.@variable(υ, ℵQ13[1:T])
-    JuMP.@variable(υ, ℵQ21[1:T, 2:G])
-    JuMP.@variable(υ, ℵQ22[1:T, 2:G])
-    JuMP.@variable(υ, ℵQ23[1:T, 2:G])
-    JuMP.@objective(υ, Max, -sum(Bℶ["BC"][b] * (ℵlfl[t, b] + ℵlfr[t, b]) for b in 1:B, t in 1:T) 
-        +sum(
-            (ℵlfl[t, b] - ℵlfr[t, b]) * (sum(F[b, Lℶ["n"][l]] * Lℶ["MAX"][l] * Z[t, l] for l in 1:L) - sum(F[b, Wℶ["n"][w]] * Wℶ["MAX"][w] * Y[t, w] for w in 1:W))
-                for b in 1:B, t in 1:T
-            )
-        -sum(ℵϖ[t, w] * (Wℶ["MAX"][w] * Y[t, w]) for w in 1:W, t in 1:T)
-        -sum(ℵζ[t, l] * (Lℶ["MAX"][l] * Z[t, l]) for l in 1:L, t in 1:T)
-        +sum(ℵQ12[t] - ℵQ11[t] for t in 1:T)
-        +sum(ℵQ22[t, g] - ℵQ21[t, g] for g in 2:G, t in 1:T)
-        +sum(ℵϕ[t, g] * (Gℶ["C0"][g] - (1 - x[t, g]) * θ(g, Gℶ["PS"][g])) for g in 2:G, t in 1:T)
-        +SRD * sum(ℵSRD)
-        -Gℶ["PS"][1] * sum(ℵϱ)
-        +sum(Gℶ["ZP"][g] * (ℵdpl[1, g] - ℵdpr[1, g]) for g in 2:G)
-        +sum(ℵdpl[t, g] * (-Gℶ["RD"][g] * x[t, g] - Gℶ["SD"][g] * v[t, g]) for g in 2:G, t in 1:T)
-        +sum(ℵdpr[t, g] * (-Gℶ["RU"][g] * x[t-1, g] - Gℶ["SU"][g] * u[t, g]) for g in 2:G, t in 1:T)
-        +sum(Gℶ["PI"][g] * x[t, g] * ℵPI[t, g] for g in 2:G, t in 1:T)
-        +sum(ℵbalance[t] * (sum(Wℶ["MAX"][w] * Y[t, w] for w in 1:W) - sum(Lℶ["MAX"][l] * Z[t, l] for l in 1:L)) for t in 1:T)
-        -sum(Gℶ["PS"][g] * x[t, g] * ℵPS[t, g] for g in 2:G, t in 1:T)
+function f_primal( there is an additional -ip(beta2, Z) in the outer layer!!! )
+    JuMP.@variable(ø,  ϖ[t = 1:T, w = 1:W] >= 0.)
+    JuMP.@variable(ø,  ζ[t = 1:T, l = 1:L] >= 0.)
+    JuMP.@variable(ø,  ρ[t = 1:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø,  p[t = 1:T, g = 1:G])
+    JuMP.@variable(ø, p²[t = 1:T, g = 1:G])
+    JuMP.@variable(ø,  e[t = 1:T, g = 1:G] >= 0.)
+    JuMP.@constraint(ø, ℵW[t = 1:T, w = 1:W], Wℷ["M"][w] * Y[t, w] >= ϖ[t, w])
+    JuMP.@constraint(ø, ℵL[t = 1:T, l = 1:L], Lℷ["M"][l] * Z[t, l] >= ζ[t, l])
+    JuMP.@constraint(ø, [t = 1:T, g = 1:G], [p²[t, g] + 1, p²[t, g] - 1, 2 * p[t, g]] in JuMP.SecondOrderCone())
+    JuMP.@constraint(ø, ℵe[t = 1:T, g = 1:G], e[t, g] >= Gℷ["C2"][g] * p²[t, g] + Gℷ["C1"][g] * p[t, g] + Gℷ["C0"][g] - (1 - x[t, g]) * Gℷ["M"][g])
+    JuMP.@constraint(ø, ℵdl1[g = 1:G], p[1, g] - Gℷ["ZP"][g]       >= -Gℷ["RD"][g] * x[1, g] - Gℷ["SD"][g] * v[1, g])
+    JuMP.@constraint(ø, ℵdl[t = 2:T, g = 1:G], p[t, g] - p[t-1, g] >= -Gℷ["RD"][g] * x[t, g] - Gℷ["SD"][g] * v[t, g])
+    JuMP.@constraint(ø, ℵdr1[g = 1:G], Gℷ["RU"][g] * Gℷ["ZS"][g] + Gℷ["SU"][g] * u[1, g]       >= p[1, g] - Gℷ["ZP"][g])
+    JuMP.@constraint(ø, ℵdr[t = 2:T, g = 1:G], Gℷ["RU"][g] * x[t-1, g] + Gℷ["SU"][g] * u[t, g] >= p[t, g] - p[t-1, g])
+    JuMP.@constraint(ø, ℵPI[t = 1:T, g = 1:G], p[t, g] >= Gℷ["PI"][g] * x[t, g])
+    JuMP.@constraint(ø, ℵPS[t = 1:T, g = 1:G], Gℷ["PS"][g] * x[t, g] >= p[t, g] + ρ[t, g])
+    JuMP.@constraint(ø, ℵbl[t = 1:T, b = 1:B],
+        sum(F[b, Gℷ["n"][g]] * p[t, g] for g in 1:G) + sum(F[b, Wℷ["n"][w]] * (Wℷ["M"][w] * Y[t, w] - ϖ[t, w]) for w in 1:W) - sum(F[b, Lℷ["n"][l]] * (Lℷ["M"][l] * Z[t, l] - ζ[t, l]) for l in 1:L) >= -Bℷ["BC"][b]
     )
-    JuMP.@expression(υ, expr1[t = 1:T, g = 2:G], sum(F[b, Gℶ["n"][g]] * (ℵlfr[t, b] - ℵlfl[t, b]) for b in 1:B) 
-        + Gℶ["C1"][g] * ℵϕ[t, g] - 2 * ℵQ23[t, g] + (ℵdpr[t, g] - ℵdpl[t, g]) + (ℵPS[t, g] - ℵPI[t, g]) + ℵbalance[t])
-    JuMP.@constraint(υ, p_T[g = 2:G], expr1[T, g] == 0.)
-    JuMP.@constraint(υ, p[t = 1:T-1, g = 2:G], expr1[t, g] + (ℵdpl[t+1, g] - ℵdpr[t+1, g]) == 0.)
-    JuMP.@constraint(υ, psq[t = 1:T, g = 2:G], -ℵQ21[t, g] - ℵQ22[t, g] + Gℶ["C2"][g] * ℵϕ[t, g] == 0.)
-    JuMP.@constraint(υ, ϕ[t = 1:T, g = 2:G], 1. - ℵϕ[t, g] >= 0.)
-    JuMP.@constraint(υ, ρ_1[t = 1:T], Gℶ["CR"][1] - ℵSRD[t] + ℵϱ[t] >= 0.)
-    JuMP.@constraint(υ, ρ[t = 1:T, g = 2:G], Gℶ["CR"][g] - ℵSRD[t] + ℵPS[t, g] >= 0.)
-    JuMP.@constraint(υ, ϱ[t = 1:T], Gℶ["C1"][1] - 2 * ℵQ13[t] + ℵϱ[t] + ℵbalance[t] >= 0.)
-    JuMP.@constraint(υ, ϱsq[t = 1:T], Gℶ["C2"][1] - ℵQ11[t] - ℵQ12[t] == 0.)
-    JuMP.@constraint(υ, ϖ[t = 1:T, w = 1:W], ℵϖ[t, w] + Wℶ["CW"][w] - ℵbalance[t] + sum(F[b, Wℶ["n"][w]] * (ℵlfl[t, b] - ℵlfr[t, b]) for b in 1:B) >= 0.)
-    JuMP.@constraint(υ, ζ[t = 1:T, l = 1:L], ℵζ[t, l] + Lℶ["CL"][l] + ℵbalance[t] + sum(F[b, Lℶ["n"][l]] * (ℵlfr[t, b] - ℵlfl[t, b]) for b in 1:B) >= 0.)
-    JuMP.@constraint(υ, [t = 1:T], [ℵQ11[t], ℵQ12[t], ℵQ13[t]] in JuMP.SecondOrderCone()) # 🍧
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], [ℵQ21[t, g], ℵQ22[t, g], ℵQ23[t, g]] in JuMP.SecondOrderCone()) # 🍧
-    JuMP.optimize!(υ)
-    status = JuMP.termination_status(υ)
-    @assert status == JuMP.OPTIMAL
-    JuMP.objective_value(υ)
+    JuMP.@constraint(ø, ℵbr[t = 1:T, b = 1:B],
+        Bℷ["BC"][b] >= sum(F[b, Gℷ["n"][g]] * p[t, g] for g in 1:G) + sum(F[b, Wℷ["n"][w]] * (Wℷ["M"][w] * Y[t, w] - ϖ[t, w]) for w in 1:W) - sum(F[b, Lℷ["n"][l]] * (Lℷ["M"][l] * Z[t, l] - ζ[t, l]) for l in 1:L)
+    )
+    JuMP.@constraint(ø, ℵR[t = 1:T], sum(ρ[t, :]) >= SRD)
+    JuMP.@constraint(ø, ℵ0[t = 1:T], sum(Wℷ["M"][w] * Y[t, w] - ϖ[t, w] for w in 1:W) + sum(p[t, :]) - sum(Lℷ["M"][l] * Z[t, l] - ζ[t, l] for l in 1:L) >= 0.)
+    JuMP.@expression(ø, CP[t = 1:T], sum(Wℷ["M"][w] * Y[t, w] - ϖ[t, w] for w in 1:W) + sum(p[t, :]) - sum(Lℷ["M"][l] * Z[t, l] - ζ[t, l] for l in 1:L))
+    JuMP.@expression(ø, CW[t = 1:T, w = 1:W], Wℷ["CW"][t, w] * ϖ[t, w])
+    JuMP.@expression(ø, CL[t = 1:T, l = 1:L], Lℷ["CL"][t, l] * ζ[t, l])
+    JuMP.@expression(ø, CR[t = 1:T, g = 1:G], Gℷ["CR"][g]    * ρ[t, g])
+    JuMP.@expression(ø, COST2, sum(CW) + sum(CL) + sum(CR) + sum(e) + PE * sum(CP))
+    JuMP.@objective(ø, Min, COST1 + COST2)
 end
 
-function trial_arg()
-    υ = JumpModel(0)
-    JuMP.@variable(υ, u[1:T, 2:G])
-    JuMP.@variable(υ, v[1:T, 2:G])
-    JuMP.@variable(υ, x[0:T, 2:G])
-    for i in u
-        JuMP.fix(i, rand(); force = true)
-    end
-    for i in v
-        JuMP.fix(i, rand(); force = true)
-    end
-    for i in x
-        JuMP.fix(i, rand(); force = true)
-    end
-    JuMP.optimize!(υ)
-    u = JuMP.value.(u)
-    v = JuMP.value.(v)
-    x = JuMP.value.(x)
-    Y = rand(T, W)
-    Z = rand(T, L)
-    u, v, x, Y, Z
+function f_slacked_primal()
+    JuMP.@variable(ø, s1[g = 1:G]          >= 0.)
+    JuMP.@variable(ø, s2[t = 2:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø, s3[t = 1:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø, s4[t = 1:T, b = 1:B] >= 0.)
+    JuMP.@variable(ø, s5[t = 1:T, b = 1:B] >= 0.)
+    # always feasible part
+    JuMP.@variable(ø,  ϖ[t = 1:T, w = 1:W] >= 0.)
+    JuMP.@variable(ø,  ζ[t = 1:T, l = 1:L] >= 0.)
+    JuMP.@variable(ø,  ρ[t = 1:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø,  p[t = 1:T, g = 1:G])
+    JuMP.@constraint(ø, ℵW[t = 1:T, w = 1:W], Wℷ["M"][w] * Y[t, w] >= ϖ[t, w])
+    JuMP.@constraint(ø, ℵL[t = 1:T, l = 1:L], Lℷ["M"][l] * Z[t, l] >= ζ[t, l])
+    JuMP.@constraint(ø, ℵdl1[g = 1:G], p[1, g] - Gℷ["ZP"][g]       >= -Gℷ["RD"][g] * x[1, g] - Gℷ["SD"][g] * v[1, g])
+    JuMP.@constraint(ø, ℵdl[t = 2:T, g = 1:G], p[t, g] - p[t-1, g] >= -Gℷ["RD"][g] * x[t, g] - Gℷ["SD"][g] * v[t, g])
+    JuMP.@constraint(ø, ℵR[t = 1:T], sum(ρ[t, :]) >= SRD)
+    JuMP.@constraint(ø, ℵ0[t = 1:T], sum(Wℷ["M"][w] * Y[t, w] - ϖ[t, w] for w in 1:W) + sum(p[t, :]) - sum(Lℷ["M"][l] * Z[t, l] - ζ[t, l] for l in 1:L) >= 0.)
+    JuMP.@constraint(ø, ℵPI[t = 1:T, g = 1:G], p[t, g] >= Gℷ["PI"][g] * x[t, g])
+    # slacked part
+    JuMP.@constraint(ø, ℵdr1[g = 1:G], s1[g] + Gℷ["RU"][g] * Gℷ["ZS"][g] + Gℷ["SU"][g] * u[1, g]       >= p[1, g] - Gℷ["ZP"][g])
+    JuMP.@constraint(ø, ℵdr[t = 2:T, g = 1:G], s2[t, g] + Gℷ["RU"][g] * x[t-1, g] + Gℷ["SU"][g] * u[t, g] >= p[t, g] - p[t-1, g])
+    JuMP.@constraint(ø, ℵPS[t = 1:T, g = 1:G], s3[t, g] + Gℷ["PS"][g] * x[t, g] >= p[t, g] + ρ[t, g])
+    JuMP.@constraint(ø, ℵbl[t = 1:T, b = 1:B],
+        s4[t, b] + sum(F[b, Gℷ["n"][g]] * p[t, g] for g in 1:G) + sum(F[b, Wℷ["n"][w]] * (Wℷ["M"][w] * Y[t, w] - ϖ[t, w]) for w in 1:W) - sum(F[b, Lℷ["n"][l]] * (Lℷ["M"][l] * Z[t, l] - ζ[t, l]) for l in 1:L) >= -Bℷ["BC"][b]
+    )
+    JuMP.@constraint(ø, ℵbr[t = 1:T, b = 1:B],
+        s5[t, b] + Bℷ["BC"][b] >= sum(F[b, Gℷ["n"][g]] * p[t, g] for g in 1:G) + sum(F[b, Wℷ["n"][w]] * (Wℷ["M"][w] * Y[t, w] - ϖ[t, w]) for w in 1:W) - sum(F[b, Lℷ["n"][l]] * (Lℷ["M"][l] * Z[t, l] - ζ[t, l]) for l in 1:L)
+    )
+    JuMP.@objective(ø, Min, sum(s1) + sum(s2) + sum(s3) + sum(s4) + sum(s5))
 end
 
-function f_feasible(u, v, x, Y, Z)
-    υ = JumpModel(0) # primal model
-    # curtail and shedding
-    JuMP.@variable(υ, ϖ[1:T, 1:W] >= 0.)
-    JuMP.@variable(υ, ζ[1:T, 1:L] >= 0.)
-    JuMP.@expression(υ, CW[t = 1:T, w = 1:W], Wℶ["CW"][w] * ϖ[t, w])
-    JuMP.@expression(υ, CL[t = 1:T, l = 1:L], Lℶ["CL"][l] * ζ[t, l])
-    JuMP.@constraint(υ, [t = 1:T, w in 1:W], ϖ[t, w] - Wℶ["MAX"][w] * Y[t, w] <= 0.)
-    JuMP.@constraint(υ, [t = 1:T, l in 1:L], ζ[t, l] - Lℶ["MAX"][l] * Z[t, l] <= 0.)
-    # generations
-    ## reserve
-    JuMP.@variable(υ, ρ[1:T, 1:G] >= 0.)
-    JuMP.@expression(υ, CGres[t = 1:T, g = 1:G], Gℶ["CR"][g] * ρ[t, g])
-    ## slack generator, has liability for the power balance
-    JuMP.@variable(υ, ϱ[1:T] >= 0.)
-    JuMP.@variable(υ, ϱsq[1:T])
-    JuMP.@constraint(υ, [t = 1:T], [ϱsq[t] + 1, ϱsq[t] - 1, 2 * ϱ[t]] in JuMP.SecondOrderCone()) # 🍧
-    JuMP.@expression(υ, CGgen1[t = 1:T], Gℶ["C2"][1] * ϱsq[t] + Gℶ["C1"][1] * ϱ[t])
-    ## normal generators
-    JuMP.@variable(υ, p[0:T, 2:G]) # power output of the Generator 2:G
-    [ JuMP.fix(p[0, g], Gℶ["ZP"][g]; force = true) for g in 2:G ]
-    JuMP.@variable(υ, psq[1:T, 2:G])
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], [psq[t, g] + 1, psq[t, g] - 1, 2 * p[t, g]] in JuMP.SecondOrderCone()) # 🍧
-    JuMP.@expression(υ, CGgen2[t = 1:T, g = 2:G], Gℶ["C2"][g] * psq[t, g] + Gℶ["C1"][g] * p[t, g] + Gℶ["C0"][g])
-    JuMP.@variable(υ, ϕ[1:T, 2:G] >= 0.) # epi-variable of Cost_Generators, only for 2:G
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], CGgen2[t, g] - (1. - x[t, g]) * θ(g, Gℶ["PS"][g]) - ϕ[t, g] <= 0.)
-    # ★ Linking ★ 
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], -Gℶ["RD"][g] * x[t, g] - Gℶ["SD"][g] * v[t, g] + p[t-1, g] - p[t, g] <= 0.)
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], p[t, g] - p[t-1, g] - Gℶ["RU"][g] * x[t-1, g] - Gℶ["SU"][g] * u[t, g] <= 0.)
-    # physical constrs
-    JuMP.@constraint(υ, [t = 1:T], SRD - sum(ρ[t, :]) <= 0.)
-    JuMP.@constraint(υ, [t = 1:T], ϱ[t] + ρ[t, 1] - Gℶ["PS"][1] <= 0.)
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], Gℶ["PI"][g] * x[t, g] - p[t, g] <= 0.)
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], p[t, g] + ρ[t, g] - Gℶ["PS"][g] * x[t, g] <= 0.)
-    JuMP.@expression(υ, line_flow[t = 1:T, b = 1:B], sum(F[b, Wℶ["n"][w]] * (Wℶ["MAX"][w] * Y[t, w] - ϖ[t, w]) for w in 1:W) + 
-                                                sum(F[b, Gℶ["n"][g]] * p[t, g] for g in 2:G)
-                                                - sum(F[b, Lℶ["n"][l]] * (Lℶ["MAX"][l] * Z[t, l] - ζ[t, l]) for l in 1:L))
-    JuMP.@constraint(υ, [t = 1:T, b = 1:B], -Bℶ["BC"][b] <= line_flow[t, b])
-    JuMP.@constraint(υ, [t = 1:T, b = 1:B], line_flow[t, b] <= Bℶ["BC"][b])
-    JuMP.@constraint(υ, [t = 1:T], sum(Wℶ["MAX"][w] * Y[t, w] - ϖ[t, w] for w in 1:W) + sum(p[t, :]) + ϱ[t] == sum(Lℶ["MAX"][l] * Z[t, l] - ζ[t, l] for l in 1:L))
-    JuMP.@variable(υ, ℵϖ[1:T, 1:W] >= 0.)
-    JuMP.@variable(υ, ℵζ[1:T, 1:L] >= 0.)
-    JuMP.@variable(υ, ℵϕ[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵdpl[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵdpr[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵSRD[1:T] >= 0.)
-    JuMP.@variable(υ, ℵϱ[1:T] >= 0.)
-    JuMP.@variable(υ, ℵPI[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵPS[1:T, 2:G] >= 0.)
-    JuMP.@variable(υ, ℵbalance[1:T])
-    JuMP.@variable(υ, ℵlfl[1:T, 1:B] >= 0.)
-    JuMP.@variable(υ, ℵlfr[1:T, 1:B] >= 0.)
-    JuMP.@variable(υ, ℵQ11[1:T])
-    JuMP.@variable(υ, ℵQ12[1:T])
-    JuMP.@variable(υ, ℵQ13[1:T])
-    JuMP.@variable(υ, ℵQ21[1:T, 2:G])
-    JuMP.@variable(υ, ℵQ22[1:T, 2:G])
-    JuMP.@variable(υ, ℵQ23[1:T, 2:G])
-    JuMP.@constraint(υ, objcut, -sum(Bℶ["BC"][b] * (ℵlfl[t, b] + ℵlfr[t, b]) for b in 1:B, t in 1:T) 
-    +sum(
-        (ℵlfl[t, b] - ℵlfr[t, b]) * (sum(F[b, Lℶ["n"][l]] * Lℶ["MAX"][l] * Z[t, l] for l in 1:L) - sum(F[b, Wℶ["n"][w]] * Wℶ["MAX"][w] * Y[t, w] for w in 1:W))
-            for b in 1:B, t in 1:T
-        )
-    -sum(ℵϖ[t, w] * (Wℶ["MAX"][w] * Y[t, w]) for w in 1:W, t in 1:T)
-    -sum(ℵζ[t, l] * (Lℶ["MAX"][l] * Z[t, l]) for l in 1:L, t in 1:T)
-    +sum(ℵQ12[t] - ℵQ11[t] for t in 1:T)
-    +sum(ℵQ22[t, g] - ℵQ21[t, g] for g in 2:G, t in 1:T)
-    +sum(ℵϕ[t, g] * (Gℶ["C0"][g] - (1 - x[t, g]) * θ(g, Gℶ["PS"][g])) for g in 2:G, t in 1:T)
-    +SRD * sum(ℵSRD)
-    -Gℶ["PS"][1] * sum(ℵϱ)
-    +sum(Gℶ["ZP"][g] * (ℵdpl[1, g] - ℵdpr[1, g]) for g in 2:G)
-    +sum(ℵdpl[t, g] * (-Gℶ["RD"][g] * x[t, g] - Gℶ["SD"][g] * v[t, g]) for g in 2:G, t in 1:T)
-    +sum(ℵdpr[t, g] * (-Gℶ["RU"][g] * x[t-1, g] - Gℶ["SU"][g] * u[t, g]) for g in 2:G, t in 1:T)
-    +sum(Gℶ["PI"][g] * x[t, g] * ℵPI[t, g] for g in 2:G, t in 1:T)
-    +sum(ℵbalance[t] * (sum(Wℶ["MAX"][w] * Y[t, w] for w in 1:W) - sum(Lℶ["MAX"][l] * Z[t, l] for l in 1:L)) for t in 1:T)
-    -sum(Gℶ["PS"][g] * x[t, g] * ℵPS[t, g] for g in 2:G, t in 1:T) 
-    >= sum(CW) + sum(CL) + sum(CGres) + sum(CGgen1) + sum(ϕ)    )
-    JuMP.@objective(υ, Min, sum(CW) + sum(CL) + sum(CGres) + sum(CGgen1) + sum(ϕ))
-    JuMP.@expression(υ, expr1[t = 1:T, g = 2:G], sum(F[b, Gℶ["n"][g]] * (ℵlfr[t, b] - ℵlfl[t, b]) for b in 1:B) 
-        + Gℶ["C1"][g] * ℵϕ[t, g] - 2 * ℵQ23[t, g] + (ℵdpr[t, g] - ℵdpl[t, g]) + (ℵPS[t, g] - ℵPI[t, g]) + ℵbalance[t])
-    JuMP.@constraint(υ, [g = 2:G], expr1[T, g] == 0.)
-    JuMP.@constraint(υ, [t = 1:T-1, g = 2:G], expr1[t, g] + (ℵdpl[t+1, g] - ℵdpr[t+1, g]) == 0.)
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], -ℵQ21[t, g] - ℵQ22[t, g] + Gℶ["C2"][g] * ℵϕ[t, g] == 0.)
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], 1. - ℵϕ[t, g] >= 0.)
-    JuMP.@constraint(υ, [t = 1:T], Gℶ["CR"][1] - ℵSRD[t] + ℵϱ[t] >= 0.)
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], Gℶ["CR"][g] - ℵSRD[t] + ℵPS[t, g] >= 0.)
-    JuMP.@constraint(υ, [t = 1:T], Gℶ["C1"][1] - 2 * ℵQ13[t] + ℵϱ[t] + ℵbalance[t] >= 0.)
-    JuMP.@constraint(υ, [t = 1:T], Gℶ["C2"][1] - ℵQ11[t] - ℵQ12[t] == 0.)
-    JuMP.@constraint(υ, [t = 1:T, w = 1:W], ℵϖ[t, w] + Wℶ["CW"][w] - ℵbalance[t] + sum(F[b, Wℶ["n"][w]] * (ℵlfl[t, b] - ℵlfr[t, b]) for b in 1:B) >= 0.)
-    JuMP.@constraint(υ, [t = 1:T, l = 1:L], ℵζ[t, l] + Lℶ["CL"][l] + ℵbalance[t] + sum(F[b, Lℶ["n"][l]] * (ℵlfr[t, b] - ℵlfl[t, b]) for b in 1:B) >= 0.)
-    JuMP.@constraint(υ, [t = 1:T], [ℵQ11[t], ℵQ12[t], ℵQ13[t]] in JuMP.SecondOrderCone()) # 🍧
-    JuMP.@constraint(υ, [t = 1:T, g = 2:G], [ℵQ21[t, g], ℵQ22[t, g], ℵQ23[t, g]] in JuMP.SecondOrderCone()) # 🍧
-    JuMP.set_attribute(υ, "NonConvex", 0) # this feasibility system is also convex
-    JuMP.optimize!(υ)
-    status = JuMP.termination_status(υ)
-    @assert status == JuMP.OPTIMAL
-    JuMP.objective_value(υ)
+function f_dual( there is an additional -ip(beta2, Z) in the outer layer!!! )
+    JuMP.@variable(ø, ℵQ1[t = 1:T, g = 1:G])
+    JuMP.@variable(ø, ℵQ2[t = 1:T, g = 1:G])
+    JuMP.@variable(ø, ℵQ3[t = 1:T, g = 1:G])
+    JuMP.@variable(ø, ℵW[t = 1:T, w = 1:W] >= 0.)
+    JuMP.@variable(ø, ℵL[t = 1:T, l = 1:L] >= 0.)
+    JuMP.@variable(ø, 0. <= ℵe[t = 1:T, g = 1:G] <= 1.) # RHS due to e >= 0
+    JuMP.@variable(ø, ℵdl1[g = 1:G] >= 0.)
+    JuMP.@variable(ø, ℵdl[t = 2:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø, ℵdr1[g = 1:G] >= 0.)
+    JuMP.@variable(ø, ℵdr[t = 2:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø, ℵPI[t = 1:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø, ℵPS[t = 1:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø, ℵbl[t = 1:T, b = 1:B] >= 0.)
+    JuMP.@variable(ø, ℵbr[t = 1:T, b = 1:B] >= 0.)
+    JuMP.@variable(ø, ℵR[t = 1:T] >= 0.)
+    JuMP.@variable(ø, ℵ0[t = 1:T] >= 0.)
+    JuMP.@constraint(ø,  ϖ[t = 1:T, w = 1:W],  ℵ0[t] + ℵW[t, w] + Wℷ["CW"][t, w] - PE + sum(F[b, Wℷ["n"][w]] * (ℵbl[t, b] - ℵbr[t, b]) for b in 1:B) >= 0.)
+    JuMP.@constraint(ø,  ζ[t = 1:T, l = 1:L], -ℵ0[t] + ℵL[t, l] + Lℷ["CL"][t, l] + PE + sum(F[b, Lℷ["n"][l]] * (ℵbr[t, b] - ℵbl[t, b]) for b in 1:B) >= 0.)
+    JuMP.@constraint(ø,  ρ[t = 1:T, g = 1:G], ℵPS[t, g] - ℵR[t] + Gℷ["CR"][g] >= 0.)
+    JuMP.@constraint(ø, p²[t = 1:T, g = 1:G], Gℷ["C2"][g] * ℵe[t, g] - ℵQ2[t, g] - ℵQ1[t, g] == 0.)
+    JuMP.@expression(ø,  pCommon[t = 1:T, g = 1:G], ℵPS[t, g] - ℵPI[t, g] - ℵ0[t] - 2. * ℵQ3[t, g] + Gℷ["C1"][g] * ℵe[t, g] + PE * CP[t] + sum((ℵbr[t, b] - ℵbl[t, b]) * F[b, Gℷ["n"][g]] for b in 1:B))
+    JuMP.@constraint(ø,  pt1[g = 1:G], pCommon[1, g] + ℵdr1[g] - ℵdl1[g] + ℵdl[2, g] - ℵdr[2, g] == 0.)
+    JuMP.@constraint(ø,  prest[t = 2:T-1, g = 1:G], pCommon[t, g] + ℵdr[t, g] - ℵdl[t, g] + ℵdl[t+1, g] - ℵdr[t+1, g] == 0.)
+    JuMP.@constraint(ø,  ptT[g = 1:G], pCommon[T, g] + ℵdr[T, g] - ℵdl[T, g] == 0.)
+    JuMP.@constraint(ø, [t = 1:T, g = 1:G], [ℵQ1[t, g], ℵQ2[t, g], ℵQ3[t, g]] in JuMP.SecondOrderCone())
+    JuMP.@objective(ø, Max, PE * sum(sum(Wℷ["M"][w] * Y[t, w] for w in 1:W) - sum(Lℷ["M"][l] * Z[t, l]  for l in 1:L) for t in 1:T)
+        + sum(ℵQ2 .- ℵQ1) + sum(ℵe[t, g] * (Gℷ["C0"][g] - (1 - x[t, g]) * Gℷ["M"][g]) for t in 1:T, g in 1:G)
+        - sum(ℵW[t, w] * Wℷ["M"][w] * Y[t, w] for t in 1:T, w in 1:W) - sum(ℵL[t, l] * Lℷ["M"][l] * Z[t, l] for t in 1:T, l in 1:L)
+        + SRD * sum(ℵR) + sum( ℵPI[t, g] * Gℷ["PI"][g] * x[t, g] - ℵPS[t, g] * Gℷ["PS"][g] * x[t, g]  for t in 1:T, g in 1:G)
+        + sum((ℵbr[t, b] - ℵbl[t, b]) * (sum(F[b, Wℷ["n"][w]] * Wℷ["M"][w] * Y[t, w] for w in 1:W) - sum(F[b, Lℷ["n"][l]] * Lℷ["M"][l] * Z[t, l] for l in 1:L)) for t in 1:T, b in 1:B)
+        + sum((ℵbl[t, b] + ℵbr[t, b]) * (-Bℷ["BC"][b]) for t in 1:T, b in 1:B)
+        + sum( ℵ0[t] * (sum(Lℷ["M"][l] * Z[t, l] for l in 1:L) - sum(Wℷ["M"][w] * Y[t, w] for w in 1:W)) for t in 1:T)
+        + sum(ℵdl1[g] * (Gℷ["ZP"][g] - Gℷ["RD"][g] * x[1, g] - Gℷ["SD"][g] * v[1, g]) - ℵdr1[g] * (Gℷ["RU"][g] * Gℷ["ZS"][g] + Gℷ["SU"][g] * u[1, g] + Gℷ["ZP"][g]) for g in 1:G)
+        + sum( ℵdl[t, g] * (-Gℷ["RD"][g] * x[t, g] - Gℷ["SD"][g] * v[t, g]) - ℵdr[t, g] * (Gℷ["RU"][g] * x[t-1, g] + Gℷ["SU"][g] * u[t, g]) for t in 2:T, g in 1:G)
+    )
 end
 
-seed1 = abs(rand(Int))
-@info "seed = $seed1"
-Random.seed!(seed1)
-
-u, v, x, Y, Z = trial_arg();
-[f_primal(u, v, x, Y, Z), f_dual(u, v, x, Y, Z)]
-f_primal(u, v, x, Y, Z) - f_dual(u, v, x, Y, Z)
-f_feasible(u, v, x, Y, Z)
+function f_slacked_dual()
+    JuMP.@variable(ø, ℵW[t = 1:T, w = 1:W] >= 0.)
+    JuMP.@variable(ø, ℵL[t = 1:T, l = 1:L] >= 0.)
+    JuMP.@variable(ø, ℵdl1[g = 1:G] >= 0.)
+    JuMP.@variable(ø, ℵdl[t = 2:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø, 0. <= ℵdr1[g = 1:G] <= 1.)
+    JuMP.@variable(ø, 0. <= ℵdr[t = 2:T, g = 1:G] <= 1.)
+    JuMP.@variable(ø, ℵPI[t = 1:T, g = 1:G] >= 0.)
+    JuMP.@variable(ø, 0. <= ℵPS[t = 1:T, g = 1:G] <= 1.)
+    JuMP.@variable(ø, 0. <= ℵbl[t = 1:T, b = 1:B] <= 1.)
+    JuMP.@variable(ø, 0. <= ℵbr[t = 1:T, b = 1:B] <= 1.)
+    JuMP.@variable(ø, ℵR[t = 1:T] >= 0.)
+    JuMP.@variable(ø, ℵ0[t = 1:T] >= 0.)
+    JuMP.@constraint(ø,  ϖ[t = 1:T, w = 1:W],  ℵ0[t] + ℵW[t, w] + sum(F[b, Wℷ["n"][w]] * (ℵbl[t, b] - ℵbr[t, b]) for b in 1:B) >= 0.)
+    JuMP.@constraint(ø,  ζ[t = 1:T, l = 1:L], -ℵ0[t] + ℵL[t, l] + sum(F[b, Lℷ["n"][l]] * (ℵbr[t, b] - ℵbl[t, b]) for b in 1:B) >= 0.)
+    JuMP.@constraint(ø,  ρ[t = 1:T, g = 1:G], ℵPS[t, g] - ℵR[t] >= 0.)
+    JuMP.@expression(ø,  pCommon[t = 1:T, g = 1:G], ℵPS[t, g] - ℵPI[t, g] - ℵ0[t] + sum((ℵbr[t, b] - ℵbl[t, b]) * F[b, Gℷ["n"][g]] for b in 1:B))
+    JuMP.@constraint(ø,  pt1[g = 1:G], pCommon[1, g] + ℵdr1[g] - ℵdl1[g] + ℵdl[2, g] - ℵdr[2, g] == 0.)
+    JuMP.@constraint(ø,  prest[t = 2:T-1, g = 1:G], pCommon[t, g] + ℵdr[t, g] - ℵdl[t, g] + ℵdl[t+1, g] - ℵdr[t+1, g] == 0.)
+    JuMP.@constraint(ø,  ptT[g = 1:G], pCommon[T, g] + ℵdr[T, g] - ℵdl[T, g] == 0.)
+    JuMP.@objective(ø, Max, -sum(ℵW[t, w] * Wℷ["M"][w] * Y[t, w] for t in 1:T, w in 1:W) - sum(ℵL[t, l] * Lℷ["M"][l] * Z[t, l] for t in 1:T, l in 1:L)
+        + SRD * sum(ℵR) + sum( ℵPI[t, g] * Gℷ["PI"][g] * x[t, g] - ℵPS[t, g] * Gℷ["PS"][g] * x[t, g]  for t in 1:T, g in 1:G)
+        + sum((ℵbr[t, b] - ℵbl[t, b]) * (sum(F[b, Wℷ["n"][w]] * Wℷ["M"][w] * Y[t, w] for w in 1:W) - sum(F[b, Lℷ["n"][l]] * Lℷ["M"][l] * Z[t, l] for l in 1:L)) for t in 1:T, b in 1:B)
+        + sum((ℵbl[t, b] + ℵbr[t, b]) * (-Bℷ["BC"][b]) for t in 1:T, b in 1:B)
+        + sum( ℵ0[t] * (sum(Lℷ["M"][l] * Z[t, l] for l in 1:L) - sum(Wℷ["M"][w] * Y[t, w] for w in 1:W)) for t in 1:T)
+        + sum(ℵdl1[g] * (Gℷ["ZP"][g] - Gℷ["RD"][g] * x[1, g] - Gℷ["SD"][g] * v[1, g]) - ℵdr1[g] * (Gℷ["RU"][g] * Gℷ["ZS"][g] + Gℷ["SU"][g] * u[1, g] + Gℷ["ZP"][g]) for g in 1:G)
+        + sum( ℵdl[t, g] * (-Gℷ["RD"][g] * x[t, g] - Gℷ["SD"][g] * v[t, g]) - ℵdr[t, g] * (Gℷ["RU"][g] * x[t-1, g] + Gℷ["SU"][g] * u[t, g]) for t in 2:T, g in 1:G)
+    )
+end
 
