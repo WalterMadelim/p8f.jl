@@ -28,7 +28,7 @@ function f_primal( there is an additional -ip(beta2, Z) in the outer layer!!! )
     JuMP.@expression(ø, CL[t = 1:T, l = 1:L], Lℷ["CL"][t, l] * ζ[t, l])
     JuMP.@expression(ø, CR[t = 1:T, g = 1:G], Gℷ["CR"][g]    * ρ[t, g])
     JuMP.@expression(ø, COST2, sum(CW) + sum(CL) + sum(CR) + sum(e) + PE * sum(CP))
-    JuMP.@objective(ø, Min, COST1 + COST2)
+    JuMP.@objective(ø, Min, COST2)
 end
 
 function f_slacked_primal()
