@@ -1,0 +1,85 @@
+\section{An instance\textemdash Unit Commitment (UC)}
+The deterministic formulation (MISOCP) of a multiperiod unit commitment problem is expounded from (\ref{upsilonD}) to (\ref{BCinterval}).
+Unless otherwise specified, range of the indices entailed during decision variable declaration and constraint specification phases are:
+\[ \forall \quad t \in 1 \!:\! T \quad g \in 1 \!:\! G \quad w \in 1 \!:\! W \quad l \in 1 \!:\! L \quad b \in 1 \!:\! B \]
+
+When the wind generation $Y$ and load $Z$ are fixed at $y$ and $z$, respectively, the optimal value of the UC problem is as follows\footnote{note that the LHS $\upsilon$ is \textquoteleft upsilon\textquoteright{} while RHS $v$ is \textquoteleft vee\textquoteright{}}
+\begin{equation}\label{upsilonD}
+    \upsilon^\textrm{D}(y, z) := \underset{x_1}{\min} \left(\sum_{t=1}^{T} \sum_{g=1}^{G} \mathrm{CST}_g u_{tg} + \mathrm{CSH}_g v_{tg}\right) + f(x_1, y, z)
+\end{equation}
+where, the 1st stage decision $x_1$ comprises start-up sign $u$, shut-down sign $v$ and on-off status $x$
+\begin{equation}
+    x_1 \iff \left( u_{tg}, v_{tg}, x_{tg} \in \{0, 1\} \quad \forall t, g \right)
+\end{equation}
+And the decision variables are subject to
+\begin{equation}\label{logic2}
+    x_{tg} - x_{(t-1)g} = u_{tg} - v_{tg}
+\end{equation}
+\begin{align}
+    \sum_{\tau = t}^{t + \textrm{UT}_g - 1} x_{\tau g} \ge \textrm{UT}_g u_{tg}, \; &\forall t \in 1 \!:\! T-\textrm{UT}_g+1  \label{up_1} \\
+    \sum_{\tau = t}^T (x_{\tau g} - u_{tg}) \ge 0, \; &\forall t \in T-\textrm{UT}_g+1 \!:\! T \label{up_2} \\
+    \sum_{\tau = t}^{t + \textrm{DT}_g - 1} (1 - x_{\tau g}) \ge \textrm{DT}_g v_{tg}, \; &\forall t \in 1 \!:\! T-\textrm{DT}_g+1 \label{down_1} \\
+    \sum_{\tau = t}^T (1 - x_{\tau g} - v_{tg}) \ge 0, \; &\forall t \in T-\textrm{DT}_g+1 \!:\! T \label{down_2}
+\end{align}
+
+The 2nd stage value function is defined as
+\begin{equation}
+    f(x_1, y, z) := \underset{\varpi \geqslant 0, \zeta \geqslant 0, \rho \geqslant 0, e \geqslant 0, p, \check{p}^2}{\inf} c_2^1 + c_2^2 + c_2^3 + c_2^4 + c_2^5
+\end{equation}
+where, the 2nd stage decisions comprises wind curtailment $\varpi_{tw}$, load shedding $\zeta_{tl}$, unit reserve $\rho_{tg}$, ancillary variable on unit cost $e_{tg}$, unit power $p_{tg}$, ancillary variable on unit power $\check{p}^2_{tg}$.
+And the cost terms are
+\begin{equation*}
+    c_2^1 := \sum_{t = 1}^{T} \sum_{w = 1}^{W} \textrm{CW}_{tw} \varpi_{tw} \quad c_2^2 := \sum_{t = 1}^{T} \sum_{l = 1}^{L} \textrm{CL}_{tl} \zeta_{tl}
+\end{equation*}
+\begin{equation*}
+    c_2^3 := \sum_{t = 1}^{T} \sum_{g = 1}^{G} \textrm{CR}_g \rho_{tg} \quad c_2^4 := \sum_{t = 1}^{T} \sum_{g = 1}^{G} e_{tg} \quad c_2^5 := \sum_{t = 1}^{T} \textrm{PE}_t p^\oplus_t
+\end{equation*}
+The system power surplus at time $t$ can be expressed as
+\begin{equation}
+    \left(\sum_{w = 1}^{W} (y_{tw} - \varpi_{tw}) + \sum_{g = 1}^{G} p_{tg} - \sum_{l = 1}^{L} (z_{tl} - \zeta_{tl})\right) =: p^\oplus_t \ge 0
+\end{equation}
+The positive constraint on the RHS demands that the system cannot have power deficiency at any time $t$, while the positive part are priced in the objective via $c_2^5$.
+The ancillary variable on unit cost $e$ has the following linear constraint
+\begin{equation}\label{discon1}
+    e_{tg} \ge \textrm{C2}_g \check{p}^2_{tg} + \textrm{C1}_g p_{tg} + \textrm{C0}_g - \textrm{GM}_g (1 - x_{tg})
+\end{equation}
+We note that $\check{p}^2_{tg}$ is a variable per se (not a square of a variable), fulfilling
+\begin{equation}\label{discon2}
+    [\check{p}^2_{tg} + 1, \ \check{p}^2_{tg} - 1, \ 2 p_{tg}] \in \mathcal{K}_\textrm{SOC}
+\end{equation}
+The big-M constant $\textrm{GM}_g$ is defined by the polynomial
+\begin{equation}\label{discon3}
+    \textrm{GM}_g := \textrm{C2}_g \textrm{PS}_g^2 + \textrm{C1}_g \textrm{PS}_g + \textrm{C0}_g
+\end{equation}
+Formulae (\ref{discon1})(\ref{discon2})(\ref{discon3}) along with $e \geqslant 0$ delineate a discontinuous quadratic generator cost function.
+The generation range of generators is
+\begin{equation}
+    \textrm{PI}_g x_{tg} \le p_{tg} \le \textrm{PS}_g x_{tg} - \rho_{tg}
+\end{equation}
+The reserve demanded by the system should be satisfied
+\begin{equation}
+    \sum_{g = 1}^{G} \rho_{tg} \ge \textrm{SRD} \quad
+\end{equation}
+Ramping constraints of generators are 
+\begin{align}
+    -\textrm{RD}_g x_{tg} -\textrm{SD}_g v_{tg} \le p_{tg} - p_{(t-1)g} \le \textrm{RU}_g x_{(t-1)g} + \textrm{SU}_g u_{tg}
+\end{align}
+The wind curtailment and load shedding, according to their nature, have a cap respectively
+\begin{equation}
+    \varpi_{tw} \le y_{tw} \quad \quad \quad  \zeta_{tl} \le z_{tl}
+\end{equation}
+Since we are discussing networked unit commitment, line flow restrictions are present
+\begin{align}\label{BCinterval}
+    \sum_{g=1}^{G} F_{bn_g} p_{tg} + \sum_{w=1}^{W} F_{bn_w} (y_{tw} - \varpi_{tw}) - \sum_{l=1}^{L} F_{bn_l} (z_{tl} - \zeta_{tl}) \notag \\
+    \in [ -\textrm{BC}_b, \textrm{BC}_b ]
+\end{align}
+
+
+
+
+% JuMP.@constraint(ø, ℵbl[t = 1:T, b = 1:B],
+%      >= -Bℷ["BC"][b]
+% )
+% JuMP.@constraint(ø, ℵbr[t = 1:T, b = 1:B],
+%     Bℷ["BC"][b] >= sum(F[b, Gℷ["n"][g]] * p[t, g] for g in 1:G) + sum(F[b, Wℷ["n"][w]] * (Y[t, w] - ϖ[t, w]) for w in 1:W) - sum(F[b, Lℷ["n"][l]] * (Lℷ["M"][l] * Z[t, l] - ζ[t, l]) for l in 1:L)
+% )
