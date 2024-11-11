@@ -159,7 +159,7 @@ function master(iCnt) # t1,
     end
     ø = JumpModel(0)
     if true
-        JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin)
+        JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin) # 🌴 if integer is relaxed, unexpected outcomes might occur due to vague physical problem
         JuMP.@variable(ø, v[t = 1:T, g = 1:G], Bin)
         JuMP.@variable(ø, x[t = 1:T, g = 1:G], Bin)
         JuMP.@constraint(ø, [g = 1:G],          x[1, g] - Gℷ["ZS"][g] == u[1, g] - v[1, g])
