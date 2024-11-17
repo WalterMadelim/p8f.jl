@@ -1,26 +1,27 @@
-# import PowerModels
-import LinearAlgebra
-import Distributions
-import Random
-import Gurobi
-import JuMP
-using Logging
-## By the wind curtail - generation curtail - load shedding system we have RCR and can enforce the power balance equation.
+begin
+    # import PowerModels
+    import LinearAlgebra
+    import Distributions
+    import Random
+    import Gurobi
+    import JuMP
+    using Logging
+    ## By the wind curtail - generation curtail - load shedding system we have RCR and can enforce the power balance equation.
+end
 @enum State begin
     t1
     t2f
     t3
     t2b
 end
-
-# Unit Commitment skeleton
-# OPTIMAL VALUE = 5.87190287
-# 13/11/24
-
+# OPTIMAL VALUE of v_2^MSDRO = 5.87190287
+# lb = 5.715297320584483, by the build_initial_ℶu(Prob_ϵ, x1_list, yM_lite, zM_lite)
+# [ Info: gap = 0.026670323729297996
+# 17/11/24
 global_logger(ConsoleLogger(Info))
 GRB_ENV = Gurobi.Env()
-function norm1(x) return LinearAlgebra.norm(x, 1) end
-function ip(x, y) return LinearAlgebra.dot(x, y) end
+ip(x, y) = LinearAlgebra.dot(x, y)
+norm1(x) = LinearAlgebra.norm(x, 1)
 function JumpModel(i)
     if i == 0 
         ø = JuMP.Model(() -> Gurobi.Optimizer(GRB_ENV))
@@ -105,7 +106,6 @@ function load_data()
     NY = size(yM, 3)
     return T, B, G, W, L, F, SRD, Bℷ, Gℷ, Wℷ, Lℷ, PE, MY, yM, NY
 end
-
 Δβ, βnm1V = let # 🍀 hyperparameter on exploit & explore
     Δβ = 1.0 # if you have numerical issues reported from Gurobi, you had best tune Δβ down to encourage more explore, but small Δβ might be slow to find valid lb
     βnm1V = 0.0 : Δβ : 1e3
@@ -126,14 +126,23 @@ u, v, x, Y, Z, x1, x2, β1, β2 = let
     β2, Z = rand(T, L), rand(T, L)
     u, v, x, Y, Z, x1, x2, β1, β2
 end
-ℶ1, ℶ2, Δ1, Δ2 = let
-    ℶ1 = Dict(
+ℶ1, ℶ2, Δ1, Δ2, ℶu, ℶψ = let
+    ℶu = Dict( # surrogate \underline_{h} (SP_lb_surrogate)
+        "cn" => Float64[],
+        "px" => typeof(x1)[]
+    ) # each element cut is generated at (x_trial, Q_trial, P_trial)
+    ℶ1 = Dict( 
         "st" => Bool[],
         "x" =>  typeof(x1)[],
-        "rv" => typeof(Y)[],
+        "rv" => Int[],
         "cn" => Float64[],
         "px" => typeof(x1)[],
         "pβ" => typeof(β1)[]
+    )
+    ℶψ = Dict(
+        "cn" => Float64[],
+        "px1" => typeof(x1)[], # 1st-stage decision
+        "pY" => typeof(Y)[] # the former r.v.
     )
     ℶ2 = Dict(
         "st" => Bool[],
@@ -153,156 +162,180 @@ end
         "x" => typeof(x2)[],
         "β" => typeof(β2)[]
     )
-    ℶ1, ℶ2, Δ1, Δ2
+    ℶ1, ℶ2, Δ1, Δ2, ℶu, ℶψ
 end
-function pushCut(D, x, rv, cn, px, pβ) return (push!(D["st"], true); push!(D["x"], x); push!(D["rv"], rv); push!(D["cn"], cn); push!(D["px"], px); push!(D["pβ"], pβ)) end
-function pushSimplicial(D, f, x, β) return (push!(D["f"], f); push!(D["x"], x); push!(D["β"], β)) end
-        
-function master() # initialization version
-    ø = JumpModel(0)
-    if true
-        JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin) # 🌴 if integer is relaxed, unexpected outcomes might occur due to vague physical problem
-        JuMP.@variable(ø, v[t = 1:T, g = 1:G], Bin)
-        JuMP.@variable(ø, x[t = 1:T, g = 1:G], Bin)
-        JuMP.@constraint(ø, [g = 1:G],          x[1, g] - Gℷ["ZS"][g] == u[1, g] - v[1, g])
-        JuMP.@constraint(ø, [t = 2:T, g = 1:G], x[t, g] - x[t-1, g]   == u[t, g] - v[t, g])
-        JuMP.@expression(ø, o1, sum(Gℷ["CST"][g] * u[t, g] + Gℷ["CSH"][g] * v[t, g] for t in 1:T, g in 1:G)) # 1st stage objective here
-    end
-    JuMP.@variable(ø, -1 <= β1[t = 1:T, w = 1:W] <= 1)
-    JuMP.@objective(ø, Min, o1 + ip(MY, β1))
-    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-    @assert status == JuMP.OPTIMAL " in master0(), $status "
-    x1 = JuMP.value.(u), JuMP.value.(v), JuMP.value.(x)
-    β1 = JuMP.value.(β1)
-    return x1, β1
-end
-function master(masterIsMature, iCnt, R2, cnV2, px1V2, pβ1V2, stV2) # enforcing boundedness version
-    ø = JumpModel(0)
-    if true
-        JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin) # 🌴 if integer is relaxed, unexpected outcomes might occur due to vague physical problem
-        JuMP.@variable(ø, v[t = 1:T, g = 1:G], Bin)
-        JuMP.@variable(ø, x[t = 1:T, g = 1:G], Bin)
-        JuMP.@constraint(ø, [g = 1:G],          x[1, g] - Gℷ["ZS"][g] == u[1, g] - v[1, g])
-        JuMP.@constraint(ø, [t = 2:T, g = 1:G], x[t, g] - x[t-1, g]   == u[t, g] - v[t, g])
-        JuMP.@expression(ø, o1, sum(Gℷ["CST"][g] * u[t, g] + Gℷ["CSH"][g] * v[t, g] for t in 1:T, g in 1:G)) # 1st stage objective here
-    end
-    JuMP.@variable(ø, β1[t = 1:T, w = 1:W])
-        (bind = iCnt[1]; βnormBnd = βnm1V[bind])
-        bind == length(βnm1V) && error(" in master(): enlarge the scale of βnm1V please. ")
-        JuMP.@variable(ø, aβ[eachindex(eachrow(β1)), eachindex(eachcol(β1))])
-        JuMP.@constraint(ø, aβ .>=  β1)
-        JuMP.@constraint(ø, aβ .>= -β1)
-        JuMP.@constraint(ø, sum(aβ) <= βnormBnd)
-    JuMP.@variable(ø, o2)
-        JuMP.@constraint(ø, o2 >= ip(MY, β1))
-    JuMP.@variable(ø, o3)
-        for r in 1:R2
-            stV2[r] && JuMP.@constraint(ø, o3 >= cnV2[r] + ip(px1V2[r], (u, v, x)) + ip(pβ1V2[r], β1))
-        end
-    JuMP.@objective(ø, Min, o1 + o2 + o3)
-    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-    @assert status == JuMP.OPTIMAL " in master1(), $status "
-    lb, x1, β1, cost1plus2, o3 = let
-        lb = JuMP.objective_value(ø)
-        x1 = JuMP.value.(u), JuMP.value.(v), JuMP.value.(x)
-        β1 = JuMP.value.(β1)
-        cost1plus2 = JuMP.value(o1) + JuMP.value(o2)
-        o3 = JuMP.value(o3)
-        lb, x1, β1, cost1plus2, o3
-    end
-    (norm1(β1) > βnormBnd - Δβ/3) ? (iCnt[1] += 1) : (masterIsMature[1] = true)
-    return lb, x1, β1, cost1plus2, o3
-end
-function master(R2, cnV2, px1V2, pβ1V2, stV2) # final version
-    ø = JumpModel(0)
-    if true
-        JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin)
-        JuMP.@variable(ø, v[t = 1:T, g = 1:G], Bin)
-        JuMP.@variable(ø, x[t = 1:T, g = 1:G], Bin)
-        JuMP.@constraint(ø, [g = 1:G],          x[1, g] - Gℷ["ZS"][g] == u[1, g] - v[1, g])
-        JuMP.@constraint(ø, [t = 2:T, g = 1:G], x[t, g] - x[t-1, g]   == u[t, g] - v[t, g])
-        JuMP.@expression(ø, o1, sum(Gℷ["CST"][g] * u[t, g] + Gℷ["CSH"][g] * v[t, g] for t in 1:T, g in 1:G)) # 1st stage objective here
-    end
-    JuMP.@variable(ø, β1[t = 1:T, w = 1:W])
-    JuMP.@variable(ø, o2)
-        JuMP.@constraint(ø, o2 >= ip(MY, β1))
-    JuMP.@variable(ø, o3)
-        for r in 1:R2
-            stV2[r] && JuMP.@constraint(ø, o3 >= cnV2[r] + ip(px1V2[r], (u, v, x)) + ip(pβ1V2[r], β1))
-        end
-    JuMP.@objective(ø, Min, o1 + o2 + o3)
-    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-    @assert status == JuMP.OPTIMAL " in masterFinal(), $status "
-    lb, x1, β1, cost1plus2, o3 = let
-        lb = JuMP.objective_value(ø)
-        x1 = JuMP.value.(u), JuMP.value.(v), JuMP.value.(x)
-        β1 = JuMP.value.(β1)
-        cost1plus2 = JuMP.value(o1) + JuMP.value(o2)
-        o3 = JuMP.value(o3)
-        lb, x1, β1, cost1plus2, o3
-    end
-    return lb, x1, β1, cost1plus2, o3
-end
-function master(masterIsMature, iCnt, ℶ1) # portal
-    R2, cnV2, px1V2, pβ1V2, stV2 = let
-        cnV2, px1V2, pβ1V2, stV2 = ℶ1["cn"], ℶ1["px"], ℶ1["pβ"], ℶ1["st"]
-        length(cnV2), cnV2, px1V2, pβ1V2, stV2
-    end
-    if masterIsMature[1]
-        lb, x1, β1, cost1plus2, o3 = master(R2, cnV2, px1V2, pβ1V2, stV2) # 3️⃣
-        return true, lb, x1, β1, cost1plus2, o3
-    else
-        if R2 >= 1
-            lb, x1, β1, cost1plus2, o3 = master(masterIsMature, iCnt, R2, cnV2, px1V2, pβ1V2, stV2) # 2️⃣
-            return false, lb, x1, β1, cost1plus2, o3
-        else
-            x1, β1 = master() # 1️⃣
-            return false, -Inf, x1, β1, NaN, -Inf
-        end
-    end
-end
-function eval_Δ_at(Δ, x, β) # t1, in termination criterion
-    isempty(Δ["f"]) && return Inf
-    fV, xV, R2, βV = Δ["f"], Δ["x"], length(Δ["f"]), Δ["β"]
-    ø = JumpModel(0)
-    JuMP.@variable(ø, λ[1:R2] >= 0.)
-    JuMP.@constraint(ø, sum(λ) == 1.)
-    JuMP.@constraint(ø, [i = 1:3, t = 1:T, g = 1:G], sum(xV[r][i][t, g] * λ[r] for r in 1:R2) == x[i][t, g])
-    JuMP.@constraint(ø, [t = 1:T, w = 1:W],          sum(βV[r][t, w]    * λ[r] for r in 1:R2) ==    β[t, w])
-    JuMP.@objective(ø, Min, ip(fV, λ))
-    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-    if status != JuMP.OPTIMAL
-        if status == JuMP.INFEASIBLE_OR_UNBOUNDED
-            JuMP.set_attribute(ø, "DualReductions", 0)
+begin
+    function pushCut(D, x, rv, cn, px, pβ) return (push!(D["st"], true); push!(D["x"], x); push!(D["rv"], rv); push!(D["cn"], cn); push!(D["px"], px); push!(D["pβ"], pβ)) end
+    function pushSimplicial(D, f, x, β) return (push!(D["f"], f); push!(D["x"], x); push!(D["β"], β)) end
+    function master() # initialization version
+            ø = JumpModel(0)
+            begin
+                JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin) # 🌴 if integer is relaxed, unexpected outcomes might occur due to vague physical problem
+                JuMP.@variable(ø, v[t = 1:T, g = 1:G], Bin)
+                JuMP.@variable(ø, x[t = 1:T, g = 1:G], Bin)
+                JuMP.@constraint(ø, [g = 1:G],          x[1, g] - Gℷ["ZS"][g] == u[1, g] - v[1, g])
+                JuMP.@constraint(ø, [t = 2:T, g = 1:G], x[t, g] - x[t-1, g]   == u[t, g] - v[t, g])
+                JuMP.@expression(ø, o1, sum(Gℷ["CST"][g] * u[t, g] + Gℷ["CSH"][g] * v[t, g] for t in 1:T, g in 1:G)) # 1st stage objective here
+            end
+            JuMP.@variable(ø, -1 <= β1[t = 1:T, w = 1:W] <= 1)
+            JuMP.@objective(ø, Min, o1 + ip(MY, β1))
             (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-        end
-        if status == JuMP.INFEASIBLE
-            return Inf
-        else
-            error(" in eval_Δ_at(): $status ")
-        end
-    else
-        return JuMP.objective_value(ø)
+            @assert status == JuMP.OPTIMAL " in master0(), $status "
+            x1 = JuMP.value.(u), JuMP.value.(v), JuMP.value.(x)
+            β1 = JuMP.value.(β1)
+            return x1, β1
     end
-end
-function eval_φ1ub(x1, β1) # t2: a max-min problem to choose worst Y
-    function eval_xby(x1, β1, Y)
-        R2, fV, x2V, β2V = let
-            fV, x2V, β2V = Δ2["f"], Δ2["x"], Δ2["β"]
-            length(fV), fV, x2V, β2V
+    function master(i, obj_ast = obj_ast) # RCI
+            R2, cnV2, px1V2, pβ1V2, stV2 = let
+                cnV2, px1V2, pβ1V2, stV2 = ℶ1["cn"], ℶ1["px"], ℶ1["pβ"], ℶ1["st"]
+                length(cnV2), cnV2, px1V2, pβ1V2, stV2
+            end
+            ø = JumpModel(0)
+            begin
+                JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin)
+                JuMP.@variable(ø, v[t = 1:T, g = 1:G], Bin)
+                JuMP.@variable(ø, x[t = 1:T, g = 1:G], Bin)
+                JuMP.@constraint(ø, [g = 1:G],          x[1, g] - Gℷ["ZS"][g] == u[1, g] - v[1, g])
+                JuMP.@constraint(ø, [t = 2:T, g = 1:G], x[t, g] - x[t-1, g]   == u[t, g] - v[t, g])
+                JuMP.@expression(ø, o1, sum(Gℷ["CST"][g] * u[t, g] + Gℷ["CSH"][g] * v[t, g] for t in 1:T, g in 1:G)) # 1st stage objective here
+            end
+            JuMP.@variable(ø, β1[t = 1:T, w = 1:W])
+            JuMP.@variable(ø, o3)
+            for r in setdiff(1:R2, i) # 🍀 remove constraint i
+                stV2[r] && JuMP.@constraint(ø, o3 >= cnV2[r] + ip(px1V2[r], (u, v, x)) + ip(pβ1V2[r], β1))
+            end
+            JuMP.@objective(ø, Min, o1 + ip(MY, β1) + o3)
+            (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+            if status == JuMP.OPTIMAL
+                obj = JuMP.objective_value(ø)
+                @assert obj <= obj_ast + 1e-6
+                if obj_ast - RCI_ϵ <= obj
+                    return is_redundant = true
+                end
+            end
+            return is_redundant = false
+    end
+    function master(masterIsMature, iCnt, ℶ1) # portal
+            R2, cnV2, px1V2, pβ1V2, stV2 = let
+                cnV2, px1V2, pβ1V2, stV2 = ℶ1["cn"], ℶ1["px"], ℶ1["pβ"], ℶ1["st"]
+                length(cnV2), cnV2, px1V2, pβ1V2, stV2
+            end
+            if masterIsMature[1]
+                lb, x1, β1, cost1plus2, o3 = master(R2, cnV2, px1V2, pβ1V2, stV2) # 3️⃣
+                return true, lb, x1, β1, cost1plus2, o3
+            else
+                if R2 >= 1
+                    lb, x1, β1, cost1plus2, o3 = master(masterIsMature, iCnt, R2, cnV2, px1V2, pβ1V2, stV2) # 2️⃣
+                    return false, lb, x1, β1, cost1plus2, o3
+                else
+                    x1, β1 = master() # 1️⃣
+                    return false, -Inf, x1, β1, NaN, -Inf
+                end
+            end
+    end
+    function master(masterIsMature, iCnt, R2, cnV2, px1V2, pβ1V2, stV2) # enforcing boundedness version
+            ø = JumpModel(0)
+            begin
+                JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin) # 🌴 if integer is relaxed, unexpected outcomes might occur due to vague physical problem
+                JuMP.@variable(ø, v[t = 1:T, g = 1:G], Bin)
+                JuMP.@variable(ø, x[t = 1:T, g = 1:G], Bin)
+                JuMP.@constraint(ø, [g = 1:G],          x[1, g] - Gℷ["ZS"][g] == u[1, g] - v[1, g])
+                JuMP.@constraint(ø, [t = 2:T, g = 1:G], x[t, g] - x[t-1, g]   == u[t, g] - v[t, g])
+                JuMP.@expression(ø, o1, sum(Gℷ["CST"][g] * u[t, g] + Gℷ["CSH"][g] * v[t, g] for t in 1:T, g in 1:G)) # 1st stage objective here
+            end
+            JuMP.@variable(ø, β1[t = 1:T, w = 1:W])
+                (bind = iCnt[1]; βnormBnd = βnm1V[bind])
+                bind == length(βnm1V) && error(" in master(): enlarge the scale of βnm1V please. ")
+                JuMP.@variable(ø, aβ[eachindex(eachrow(β1)), eachindex(eachcol(β1))])
+                JuMP.@constraint(ø, aβ .>=  β1)
+                JuMP.@constraint(ø, aβ .>= -β1)
+                JuMP.@constraint(ø, sum(aβ) <= βnormBnd)
+            JuMP.@variable(ø, o2)
+                JuMP.@constraint(ø, o2 >= ip(MY, β1))
+            JuMP.@variable(ø, o3)
+                for r in 1:R2
+                    stV2[r] && JuMP.@constraint(ø, o3 >= cnV2[r] + ip(px1V2[r], (u, v, x)) + ip(pβ1V2[r], β1))
+                end
+            JuMP.@objective(ø, Min, o1 + o2 + o3)
+            (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+            @assert status == JuMP.OPTIMAL " in master1(), $status "
+            lb, x1, β1, cost1plus2, o3 = let
+                lb = JuMP.objective_value(ø)
+                x1 = JuMP.value.(u), JuMP.value.(v), JuMP.value.(x)
+                β1 = JuMP.value.(β1)
+                cost1plus2 = JuMP.value(o1) + JuMP.value(o2)
+                o3 = JuMP.value(o3)
+                lb, x1, β1, cost1plus2, o3
+            end
+            (norm1(β1) > βnormBnd - Δβ/3) ? (iCnt[1] += 1) : (masterIsMature[1] = true)
+            return lb, x1, β1, cost1plus2, o3
+    end
+    function master(R2, cnV2, px1V2, pβ1V2, stV2) # final version
+            ø = JumpModel(0)
+            begin
+                JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin)
+                JuMP.@variable(ø, v[t = 1:T, g = 1:G], Bin)
+                JuMP.@variable(ø, x[t = 1:T, g = 1:G], Bin)
+                JuMP.@constraint(ø, [g = 1:G],          x[1, g] - Gℷ["ZS"][g] == u[1, g] - v[1, g])
+                JuMP.@constraint(ø, [t = 2:T, g = 1:G], x[t, g] - x[t-1, g]   == u[t, g] - v[t, g])
+                JuMP.@expression(ø, o1, sum(Gℷ["CST"][g] * u[t, g] + Gℷ["CSH"][g] * v[t, g] for t in 1:T, g in 1:G)) # 1st stage objective here
+            end
+            JuMP.@variable(ø, β1[t = 1:T, w = 1:W])
+            JuMP.@variable(ø, o2)
+                JuMP.@constraint(ø, o2 >= ip(MY, β1))
+            JuMP.@variable(ø, o3)
+                for r in 1:R2
+                    stV2[r] && JuMP.@constraint(ø, o3 >= cnV2[r] + ip(px1V2[r], (u, v, x)) + ip(pβ1V2[r], β1))
+                end
+            JuMP.@objective(ø, Min, o1 + o2 + o3)
+            (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+            @assert status == JuMP.OPTIMAL " in masterFinal(), $status "
+            lb, x1, β1, cost1plus2, o3 = let
+                lb = JuMP.objective_value(ø)
+                x1 = JuMP.value.(u), JuMP.value.(v), JuMP.value.(x)
+                β1 = JuMP.value.(β1)
+                cost1plus2 = JuMP.value(o1) + JuMP.value(o2)
+                o3 = JuMP.value(o3)
+                lb, x1, β1, cost1plus2, o3
+            end
+            return lb, x1, β1, cost1plus2, o3
+    end
+    function master_ℶu() # 🌳 valid lb for v^independent is from `lb` here
+        R2, cnV2, px1V2 = let
+            cnV2, px1V2 = ℶu["cn"], ℶu["px"]
+            length(cnV2), cnV2, px1V2
         end
-        @assert R2 >= 1
-        const_obj = -ip(β1, Y)
+        ø = JumpModel(0)
+        begin
+            JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin)
+            JuMP.@variable(ø, v[t = 1:T, g = 1:G], Bin)
+            JuMP.@variable(ø, x[t = 1:T, g = 1:G], Bin)
+            JuMP.@constraint(ø, [g = 1:G],          x[1, g] - Gℷ["ZS"][g] == u[1, g] - v[1, g])
+            JuMP.@constraint(ø, [t = 2:T, g = 1:G], x[t, g] - x[t-1, g]   == u[t, g] - v[t, g])
+            JuMP.@expression(ø, o1, sum(Gℷ["CST"][g] * u[t, g] + Gℷ["CSH"][g] * v[t, g] for t in 1:T, g in 1:G))
+        end
+        JuMP.@variable(ø, o)
+            JuMP.@constraint(ø, [r = 1:R2], o >= cnV2[r] + ip(px1V2[r], (u, v, x)))
+        JuMP.@objective(ø, Min, o1 + o)
+        (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+        @assert status == JuMP.OPTIMAL " in master_ℶu(), $status "
+        lb, x1, o = let
+            lb = JuMP.objective_value(ø)
+            x1 = JuMP.value.(u), JuMP.value.(v), JuMP.value.(x)
+            o = JuMP.value(o)
+            lb, x1, o
+        end
+        return lb, x1
+    end
+    function eval_Δ_at(Δ, x, β) # t1, in termination criterion
+        isempty(Δ["f"]) && return Inf
+        fV, xV, R2, βV = Δ["f"], Δ["x"], length(Δ["f"]), Δ["β"]
         ø = JumpModel(0)
         JuMP.@variable(ø, λ[1:R2] >= 0.)
         JuMP.@constraint(ø, sum(λ) == 1.)
-        JuMP.@variable(ø, β2[t = 1:T, l = 1:L])
-        JuMP.@constraint(ø, [t = 1:T, l = 1:L],             sum(β2V[r][t, l]       * λ[r] for r in 1:R2) ==    β2[t, l])
-        # following 2 lines are minimum infeas. system ############################################################
-        JuMP.@constraint(ø, [i = 1:3, t = 1:T, g = 1:G],    sum(x2V[r][1][i][t, g] * λ[r] for r in 1:R2) == x1[i][t, g])
-        JuMP.@constraint(ø, [t = 1:T, w = 1:W],             sum(x2V[r][2][t, w]    * λ[r] for r in 1:R2) ==     Y[t, w])
-        ###########################################################################################################
-        JuMP.@objective(ø, Min, ip(MZ, β2) + ip(fV, λ)) # problem \bar{ψ}(x1, Y)
+        JuMP.@constraint(ø, [i = 1:3, t = 1:T, g = 1:G], sum(xV[r][i][t, g] * λ[r] for r in 1:R2) == x[i][t, g])
+        JuMP.@constraint(ø, [t = 1:T, w = 1:W],          sum(βV[r][t, w]    * λ[r] for r in 1:R2) ==    β[t, w])
+        JuMP.@objective(ø, Min, ip(fV, λ))
         (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
         if status != JuMP.OPTIMAL
             if status == JuMP.INFEASIBLE_OR_UNBOUNDED
@@ -312,66 +345,312 @@ function eval_φ1ub(x1, β1) # t2: a max-min problem to choose worst Y
             if status == JuMP.INFEASIBLE
                 return Inf
             else
-                error(" in eval_xby #END , status = $status ")
+                error(" in eval_Δ_at(): $status ")
             end
         else
-            return const_obj + JuMP.objective_value(ø)
+            return JuMP.objective_value(ø)
         end
     end
-    if isempty(Δ2["f"]) # only once
-        return (φ1ub, index) = (Inf, 1)
-    end
-    normalVec = zeros(NY)
-    for i in 1:NY
-        φ1x1b1y = eval_xby(x1, β1, yM[:, :, i])
-        if φ1x1b1y == Inf
-            return (φ1ub, index) = (Inf, i)
-        else
-            normalVec[i] = φ1x1b1y
+    function eval_φ1ub(x1, β1) # t2: a max-min problem to choose worst Y
+        function eval_xby(x1, β1, Y)
+            R2, fV, x2V, β2V = let
+                fV, x2V, β2V = Δ2["f"], Δ2["x"], Δ2["β"]
+                length(fV), fV, x2V, β2V
+            end
+            @assert R2 >= 1
+            const_obj = -ip(β1, Y)
+            ø = JumpModel(0)
+            JuMP.@variable(ø, λ[1:R2] >= 0.)
+            JuMP.@constraint(ø, sum(λ) == 1.)
+            JuMP.@variable(ø, β2[t = 1:T, l = 1:L])
+            JuMP.@constraint(ø, [t = 1:T, l = 1:L],             sum(β2V[r][t, l]       * λ[r] for r in 1:R2) ==    β2[t, l])
+            # following 2 lines are minimum infeas. system ############################################################
+            JuMP.@constraint(ø, [i = 1:3, t = 1:T, g = 1:G],    sum(x2V[r][1][i][t, g] * λ[r] for r in 1:R2) == x1[i][t, g])
+            JuMP.@constraint(ø, [t = 1:T, w = 1:W],             sum(x2V[r][2][t, w]    * λ[r] for r in 1:R2) ==     Y[t, w])
+            ###########################################################################################################
+            JuMP.@objective(ø, Min, ip(MZ, β2) + ip(fV, λ)) # problem \bar{ψ}(x1, Y)
+            (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+            if status != JuMP.OPTIMAL
+                if status == JuMP.INFEASIBLE_OR_UNBOUNDED
+                    JuMP.set_attribute(ø, "DualReductions", 0)
+                    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+                end
+                if status == JuMP.INFEASIBLE
+                    return Inf
+                else
+                    error(" in eval_xby #END , status = $status ")
+                end
+            else
+                return const_obj + JuMP.objective_value(ø)
+            end
         end
+        if isempty(Δ2["f"]) # only once
+            return (φ1ub, index) = (Inf, 1)
+        end
+        normalVec = zeros(NY)
+        for i in 1:NY
+            φ1x1b1y = eval_xby(x1, β1, yM[:, :, i])
+            if φ1x1b1y == Inf
+                return (φ1ub, index) = (Inf, i)
+            else
+                normalVec[i] = φ1x1b1y
+            end
+        end
+        return (φ1ub, index) = findmax(normalVec)
     end
-    return (φ1ub, index) = findmax(normalVec)
-end
-function psi(iCnt, x1, Y, ℶ2) # t2f, 
-    x2 = x1, Y # 🍀 this is fixed
-    R2, cnV2, px2V2, pβ2V2 = let
-        cnV2, px2V2, pβ2V2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"]
-        length(cnV2), cnV2, px2V2, pβ2V2
+    function psi(iCnt, x1, Y) # t2f, 
+            x2 = x1, Y # 🍀 this is fixed
+            R2, cnV2, px2V2, pβ2V2 = let
+                cnV2, px2V2, pβ2V2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"]
+                length(cnV2), cnV2, px2V2, pβ2V2
+            end
+            ø = JumpModel(0)
+            JuMP.@variable(ø, β2[t = 1:T, l = 1:L])
+                (bind = iCnt[1]; βnormBnd = βnm1V[bind])
+                bind == length(βnm1V) && error(" in psi(): enlarge the scale of βnm1V please. ")
+                JuMP.@variable(ø, aβ[eachindex(eachrow(β2)), eachindex(eachcol(β2))])
+                JuMP.@constraint(ø, aβ .>=  β2)
+                JuMP.@constraint(ø, aβ .>= -β2)
+                JuMP.@constraint(ø, sum(aβ) <= βnormBnd)
+            if R2 == 0
+                JuMP.@objective(ø, Min, ip(MZ, β2))
+            else
+                JuMP.@variable(ø, o2)
+                JuMP.@constraint(ø, [r = 1:R2], o2 >= cnV2[r] + ip(px2V2[r], x2) + ip(pβ2V2[r], β2))
+                JuMP.@objective(ø, Min, ip(MZ, β2) + o2)
+            end
+            (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+            @assert status == JuMP.OPTIMAL " in psi(): $status "
+            β2 = JuMP.value.(β2)
+            let
+                bnm = norm1(β2)
+                if bnm > βnormBnd - Δβ/3
+                    iCnt[1] += 1
+                elseif bnm < (βnormBnd - Δβ) - Δβ/3
+                    iCnt[1] -= 1
+                end
+            end
+            return x2, β2
     end
-    ø = JumpModel(0)
-    JuMP.@variable(ø, β2[t = 1:T, l = 1:L])
-        (bind = iCnt[1]; βnormBnd = βnm1V[bind])
-        bind == length(βnm1V) && error(" in psi(): enlarge the scale of βnm1V please. ")
-        JuMP.@variable(ø, aβ[eachindex(eachrow(β2)), eachindex(eachcol(β2))])
-        JuMP.@constraint(ø, aβ .>=  β2)
-        JuMP.@constraint(ø, aβ .>= -β2)
-        JuMP.@constraint(ø, sum(aβ) <= βnormBnd)
-    if R2 == 0
-        JuMP.@objective(ø, Min, ip(MZ, β2))
-    else
+    function psi(x1, Y) # [post convergent] free of β_bound version
+        x2 = x1, Y # 🍀 this is fixed
+        R2, cnV2, px2V2, pβ2V2, stV2 = let
+            cnV2, px2V2, pβ2V2, stV2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"], ℶ2["st"]
+            length(cnV2), cnV2, px2V2, pβ2V2, stV2
+        end
+        ø = JumpModel(0)
+        JuMP.@variable(ø, β2[t = 1:T, l = 1:L])
         JuMP.@variable(ø, o2)
-        JuMP.@constraint(ø, [r = 1:R2], o2 >= cnV2[r] + ip(px2V2[r], x2) + ip(pβ2V2[r], β2))
+        for r in 1:R2
+            stV2[r] && JuMP.@constraint(ø, o2 >= cnV2[r] + ip(px2V2[r], x2) + ip(pβ2V2[r], β2))
+        end
         JuMP.@objective(ø, Min, ip(MZ, β2) + o2)
+        (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+        @assert status == JuMP.OPTIMAL " in psi(free of β_bound version): $status "
+        return psi_obj_ast = JuMP.objective_value(ø) 
     end
-    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-    @assert status == JuMP.OPTIMAL " in psi(): $status "
-    β2 = JuMP.value.(β2)
-    let
-        bnm = norm1(β2)
-        if bnm > βnormBnd - Δβ/3
-            iCnt[1] += 1
-        elseif bnm < (βnormBnd - Δβ) - Δβ/3
-            iCnt[1] -= 1
+    function psi(i, x1, Y, psi_obj_ast) # [post convergent] RCI
+            x2 = x1, Y # 🍀 this is fixed
+            R2, cnV2, px2V2, pβ2V2, stV2 = let
+                cnV2, px2V2, pβ2V2, stV2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"], ℶ2["st"]
+                length(cnV2), cnV2, px2V2, pβ2V2, stV2
+            end
+            ø = JumpModel(0)
+            JuMP.@variable(ø, β2[t = 1:T, l = 1:L])
+            JuMP.@variable(ø, o2)
+            for r in setdiff(1:R2, i)  # 🍀 remove constraint i
+                stV2[r] && JuMP.@constraint(ø, o2 >= cnV2[r] + ip(px2V2[r], x2) + ip(pβ2V2[r], β2))
+            end
+            JuMP.@objective(ø, Min, ip(MZ, β2) + o2)
+            (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+            if status == JuMP.OPTIMAL
+                obj = JuMP.objective_value(ø)
+                @assert obj <= psi_obj_ast + 1e-6
+                if psi_obj_ast - RCI_ϵ <= obj
+                    return i_is_redun_at_x1_Y = true
+                end
+            end
+            return i_is_redun_at_x1_Y = false
+    end
+    function maximize_φ2_over_Z(x2, β2)
+        function f_primal( x2, Z, ::Nothing ) # convex conic program
+            JuMP.@variable(ø, p[t = 1:T, g = 1:G])       # generator power
+            JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # generator cutback
+            JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.) # wind curtail
+            JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.) # load shedding
+                JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w]) 
+                JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
+                JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
+                JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G], p[t, g] >= Gℷ["PI"][g] * x[t, g])
+                JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G], Gℷ["PS"][g] * x[t, g] >= p[t, g])
+            JuMP.@constraint(ø, Dbl[t = 1:T], sum(Z[t, :]) + sum(ϖ[t, :]) + sum(ϱ[t, :]) == sum(Y[t, :]) + sum(p[t, :]) + sum(ζ[t, :]))
+            JuMP.@expression(ø, lscost, sum(Lℷ["CL"][t, l] * ζ[t, l] for t in 1:T, l in 1:L))
+            JuMP.@expression(ø, gccost, sum(   Gℷ["CG"][g] * ϱ[t, g] for t in 1:T, g in 1:G))
+            JuMP.@expression(ø, primobj, lscost + gccost)
+        end
+        function f_dual( x2, Z, ::Nothing ) # dual convex conic program
+            JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G] >= 0.)
+            JuMP.@variable(ø, Dps[t = 1:T, g = 1:G] >= 0.)
+            JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
+            JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
+            JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
+            JuMP.@variable(ø, Dbl[t = 1:T])
+            JuMP.@constraint(ø, p[t = 1:T, g = 1:G], Dps[t, g] - Dvr[t, g] - Dpi[t, g] + Dbl[t] == 0.)
+            JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], Dvr[t, g] - Dbl[t] + Gℷ["CG"][g] >= 0.)
+            JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] - Dbl[t] >= 0.)
+            JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], Dzt[t, l] + Dbl[t] + Lℷ["CL"][t, l] >= 0.)
+            JuMP.@expression(ø, xobj, sum(x[t, g] * (Gℷ["PI"][g] * Dpi[t, g] - Gℷ["PS"][g] * Dps[t, g]) for t in 1:T, g in 1:G))
+            JuMP.@expression(ø, Yobj, sum(Y[t, w] * ( Dbl[t] - Dvp[t, w]) for t in 1:T, w in 1:W))
+            JuMP.@expression(ø, Zobj, sum(Z[t, l] * (-Dbl[t] - Dzt[t, l]) for t in 1:T, l in 1:L))
+            JuMP.@expression(ø, dualobj, xobj + Yobj + Zobj)
+        end
+        (u, v, x), Y = x2
+        ø = JumpModel(0)
+        JuMP.@variable(ø, 0 <= Z[t = 1:T, l = 1:L] <= Lℷ["M"][l]) # support of Z
+            JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G] >= 0.)
+            JuMP.@variable(ø, Dps[t = 1:T, g = 1:G] >= 0.)
+            JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
+            JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
+            JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
+            JuMP.@variable(ø, Dbl[t = 1:T])
+            JuMP.@constraint(ø, p[t = 1:T, g = 1:G], Dps[t, g] - Dvr[t, g] - Dpi[t, g] + Dbl[t] == 0.)
+            JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], Dvr[t, g] - Dbl[t] + Gℷ["CG"][g] >= 0.)
+            JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] - Dbl[t] >= 0.)
+            JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], Dzt[t, l] + Dbl[t] + Lℷ["CL"][t, l] >= 0.)
+            JuMP.@expression(ø, xobj, sum(x[t, g] * (Gℷ["PI"][g] * Dpi[t, g] - Gℷ["PS"][g] * Dps[t, g]) for t in 1:T, g in 1:G))
+            JuMP.@expression(ø, Yobj, sum(Y[t, w] * ( Dbl[t] - Dvp[t, w]) for t in 1:T, w in 1:W))
+            JuMP.@expression(ø, Zobj, sum(Z[t, l] * (-Dbl[t] - Dzt[t, l]) for t in 1:T, l in 1:L))
+            JuMP.@expression(ø, dualobj, xobj + Yobj + Zobj)
+        JuMP.@objective(ø, Max, -ip(β2, Z) + dualobj)
+        (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+        if status != JuMP.OPTIMAL
+            error(" in maximize_φ2_over_Z(): $status ")
+        else
+            let
+                vio = JuMP.get_attribute(ø, Gurobi.ModelAttribute("MaxVio"))
+                vio > 5e-6 && @warn "vio = $vio"
+            end
+            return φ2, Z = JuMP.objective_value(ø), JuMP.value.(Z)
         end
     end
-    return x2, β2
-end
-function maximize_φ2_over_Z(x2, β2)
-    function f_primal( x2, Z, ::Nothing ) # convex conic program
-        JuMP.@variable(ø, p[t = 1:T, g = 1:G])       # generator power
-        JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # generator cutback
-        JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.) # wind curtail
-        JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.) # load shedding
+    function gen_cut_for_ℶ1(x1, Y) # t2b
+        function gen_cut_ψ_wrt_x1(x1Γ, Y)
+            R2, cnV2, px2V2, pβ2V2 = let
+                cnV2, px2V2, pβ2V2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"]
+                R2 = length(cnV2)
+                R2, cnV2, px2V2, pβ2V2
+            end
+            @assert R2 >= 1 " in gen_cut_ψ_wrt_x1: #R2 "
+            ø = JumpModel(0)
+            JuMP.@variable(ø, x1[i = 1:3, t = 1:T, g = 1:G]) # a part of x2
+                JuMP.@constraint(ø, cp[i = 1:3, t = 1:T, g = 1:G], x1[i, t, g] == x1Γ[i][t, g])
+            JuMP.@variable(ø, β2[t = 1:T, l = 1:L])
+            JuMP.@variable(ø, o2)
+                JuMP.@constraint(ø, [r = 1:R2], o2 >= cnV2[r] + ip(px2V2[r], ((x1[1, :, :], x1[2, :, :], x1[3, :, :]), Y)) + ip(pβ2V2[r], β2))
+            JuMP.@objective(ø, Min, ip(MZ, β2) + o2)
+            (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+            if status != JuMP.OPTIMAL
+                if status == JuMP.INFEASIBLE_OR_UNBOUNDED
+                    JuMP.set_attribute(ø, "DualReductions", 0)
+                    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+                end
+                if status == JuMP.DUAL_INFEASIBLE
+                    return -Inf
+                else
+                    error("in gen_cut_ψ_wrt_x1: $status")
+                end
+            else
+                tmp = JuMP.dual.(cp)
+                px1 = tmp[1, :, :], tmp[2, :, :], tmp[3, :, :]
+                cn = JuMP.objective_value(ø) - ip(px1, x1Γ)
+                return cn, px1
+            end
+        end
+        ret = gen_cut_ψ_wrt_x1(x1, Y)
+        if length(ret) == 1
+            return ret
+        else
+            cn, px1 = ret
+            pβ1 = -Y # 💡 this is fixed, and irrespective of 'β1'
+            return cn, px1, pβ1
+        end
+    end
+    function gen_cut_for_ψ(x1Γ, YΓ) # 🌳 [post 3S-MSARO's convergent] 
+        R2, cnV2, px2V2, pβ2V2 = let
+            cnV2, px2V2, pβ2V2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"]
+            R2 = length(cnV2)
+            R2, cnV2, px2V2, pβ2V2
+        end
+        @assert R2 >= 1 " in gen_cut_for_ψ: #R2 "
+        ø = JumpModel(0)
+        JuMP.@variable(ø, β2[t = 1:T, l = 1:L])
+        JuMP.@variable(ø, x1[i = 1:3, t = 1:T, g = 1:G]) # a part of x2
+        JuMP.@variable(ø, Y[t = 1:T, w = 1:W])           # a part of x2  
+            JuMP.@constraint(ø, cpx1[i = 1:3, t = 1:T, g = 1:G],    x1[i, t, g] == x1Γ[i][t, g])
+            JuMP.@constraint(ø, cpY[t = 1:T, w = 1:W],                  Y[t, w] ==     YΓ[t, w])
+        JuMP.@variable(ø, o2)
+            JuMP.@constraint(ø, [r = 1:R2], o2 >= cnV2[r] + ip(px2V2[r], ((x1[1, :, :], x1[2, :, :], x1[3, :, :]), Y)) + ip(pβ2V2[r], β2))
+        JuMP.@objective(ø, Min, ip(MZ, β2) + o2)
+        (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+        if status != JuMP.OPTIMAL
+            error("in gen_cut_for_ψ: $status")
+        else
+            cn, px1, pY = let
+                pY, tmp = JuMP.dual.(cpY), JuMP.dual.(cpx1)
+                px1 = tmp[1, :, :], tmp[2, :, :], tmp[3, :, :]
+                cn = JuMP.objective_value(ø) - ip(px1, x1Γ) - ip(pY, YΓ)
+                cn, px1, pY
+            end
+            return cn, px1, pY
+        end
+    end
+    function gen_cut_for_ℶ2(x2, Z)
+        function gen_cut_f_wrt_x2(x2, Z)
+            ø = JumpModel(0)
+            JuMP.@variable(ø, u[t = 1:T, g = 1:G])
+            JuMP.@variable(ø, v[t = 1:T, g = 1:G])
+            JuMP.@variable(ø, x[t = 1:T, g = 1:G])
+            JuMP.@variable(ø, Y[t = 1:T, w = 1:W])
+            JuMP.@constraint(ø, cpu[t = 1:T, g = 1:G], u[t, g] == x2[1][1][t, g])
+            JuMP.@constraint(ø, cpv[t = 1:T, g = 1:G], v[t, g] == x2[1][2][t, g])
+            JuMP.@constraint(ø, cpx[t = 1:T, g = 1:G], x[t, g] == x2[1][3][t, g])
+            JuMP.@constraint(ø, cpY[t = 1:T, w = 1:W], Y[t, w] == x2[2][t, w])
+                JuMP.@variable(ø, p[t = 1:T, g = 1:G])       # generator power
+                JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # generator cutback
+                JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.) # wind curtail
+                JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.) # load shedding
+                    JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w]) 
+                    JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
+                    JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
+                    JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G], p[t, g] >= Gℷ["PI"][g] * x[t, g])
+                    JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G], Gℷ["PS"][g] * x[t, g] >= p[t, g])
+                JuMP.@constraint(ø, Dbl[t = 1:T], sum(Z[t, :]) + sum(ϖ[t, :]) + sum(ϱ[t, :]) == sum(Y[t, :]) + sum(p[t, :]) + sum(ζ[t, :]))
+                JuMP.@expression(ø, lscost, sum(Lℷ["CL"][t, l] * ζ[t, l] for t in 1:T, l in 1:L))
+                JuMP.@expression(ø, gccost, sum(   Gℷ["CG"][g] * ϱ[t, g] for t in 1:T, g in 1:G))
+                JuMP.@expression(ø, primobj, lscost + gccost)
+            JuMP.@objective(ø, Min, primobj) # JuMP.set_attribute(ø, "QCPDual", 1)
+            (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+            if status != JuMP.OPTIMAL
+                error(" in gen_cut_f_wrt_x2(): $status ")
+            else
+                px1 = JuMP.dual.(cpu), JuMP.dual.(cpv), JuMP.dual.(cpx)
+                pY  = JuMP.dual.(cpY)
+                px2 = px1, pY
+                cn = JuMP.objective_value(ø) - ip(px2, x2)
+                return cn, px2
+            end
+        end
+        cn, px2 = gen_cut_f_wrt_x2(x2, Z)
+        pβ2 = -Z # 💡 this is fixed, and irrespective of 'β2'
+        return cn, px2, pβ2
+    end
+    function f(x1, Y, Z)
+        u, v, x = x1
+        ø = JumpModel(0)
+        JuMP.@variable(ø, p[t = 1:T, g = 1:G])       
+        JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) 
+        JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.) 
+        JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.) 
             JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w]) 
             JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
             JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
@@ -381,66 +660,189 @@ function maximize_φ2_over_Z(x2, β2)
         JuMP.@expression(ø, lscost, sum(Lℷ["CL"][t, l] * ζ[t, l] for t in 1:T, l in 1:L))
         JuMP.@expression(ø, gccost, sum(   Gℷ["CG"][g] * ϱ[t, g] for t in 1:T, g in 1:G))
         JuMP.@expression(ø, primobj, lscost + gccost)
-    end
-    function f_dual( x2, Z, ::Nothing ) # dual convex conic program
-        JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G] >= 0.)
-        JuMP.@variable(ø, Dps[t = 1:T, g = 1:G] >= 0.)
-        JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
-        JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
-        JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
-        JuMP.@variable(ø, Dbl[t = 1:T])
-        JuMP.@constraint(ø, p[t = 1:T, g = 1:G], Dps[t, g] - Dvr[t, g] - Dpi[t, g] + Dbl[t] == 0.)
-        JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], Dvr[t, g] - Dbl[t] + Gℷ["CG"][g] >= 0.)
-        JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] - Dbl[t] >= 0.)
-        JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], Dzt[t, l] + Dbl[t] + Lℷ["CL"][t, l] >= 0.)
-        JuMP.@expression(ø, xobj, sum(x[t, g] * (Gℷ["PI"][g] * Dpi[t, g] - Gℷ["PS"][g] * Dps[t, g]) for t in 1:T, g in 1:G))
-        JuMP.@expression(ø, Yobj, sum(Y[t, w] * ( Dbl[t] - Dvp[t, w]) for t in 1:T, w in 1:W))
-        JuMP.@expression(ø, Zobj, sum(Z[t, l] * (-Dbl[t] - Dzt[t, l]) for t in 1:T, l in 1:L))
-        JuMP.@expression(ø, dualobj, xobj + Yobj + Zobj)
-    end
-    (u, v, x), Y = x2
-    ø = JumpModel(0)
-    JuMP.@variable(ø, 0 <= Z[t = 1:T, l = 1:L] <= Lℷ["M"][l]) # support of Z
-        JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G] >= 0.)
-        JuMP.@variable(ø, Dps[t = 1:T, g = 1:G] >= 0.)
-        JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
-        JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
-        JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
-        JuMP.@variable(ø, Dbl[t = 1:T])
-        JuMP.@constraint(ø, p[t = 1:T, g = 1:G], Dps[t, g] - Dvr[t, g] - Dpi[t, g] + Dbl[t] == 0.)
-        JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], Dvr[t, g] - Dbl[t] + Gℷ["CG"][g] >= 0.)
-        JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] - Dbl[t] >= 0.)
-        JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], Dzt[t, l] + Dbl[t] + Lℷ["CL"][t, l] >= 0.)
-        JuMP.@expression(ø, xobj, sum(x[t, g] * (Gℷ["PI"][g] * Dpi[t, g] - Gℷ["PS"][g] * Dps[t, g]) for t in 1:T, g in 1:G))
-        JuMP.@expression(ø, Yobj, sum(Y[t, w] * ( Dbl[t] - Dvp[t, w]) for t in 1:T, w in 1:W))
-        JuMP.@expression(ø, Zobj, sum(Z[t, l] * (-Dbl[t] - Dzt[t, l]) for t in 1:T, l in 1:L))
-        JuMP.@expression(ø, dualobj, xobj + Yobj + Zobj)
-    JuMP.@objective(ø, Max, -ip(β2, Z) + dualobj)
-    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-    if status != JuMP.OPTIMAL
-        error(" in maximize_φ2_over_Z(): $status ")
-    else
-        let
-            vio = JuMP.get_attribute(ø, Gurobi.ModelAttribute("MaxVio"))
-            vio > 5e-6 && @warn "vio = $vio"
-        end
-        return φ2, Z = JuMP.objective_value(ø), JuMP.value.(Z)
+        JuMP.@objective(ø, Min, primobj)
+        (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+        @assert status == JuMP.OPTIMAL " in f(x1, Y, Z): $status "
+        return JuMP.objective_value(ø)
     end
 end
-function gen_cut_f_wrt_x2(x2, Z)
+begin
+    masterCnt, psiCnt = [2], [2]
+    masterIsMature = falses(1)
+    x1V, β1V, x2V, β2V, ZV = let
+        x1V, β1V = [x1], [β1]
+        x2V, β2V = [x2], [β2] # 💡 (x1, β1) -> Y -> β2 is essential; 'x2' is NOT essential
+        ZV = [Z]
+        x1V, β1V, x2V, β2V, ZV
+    end
+    tV, termination_flag = [t1], falses(1)
+    while true
+        ST = tV[1]
+        if ST == t1
+            vldt, lb, x1, β1, cost1plus2, _ = master(masterIsMature, masterCnt, ℶ1)
+            let
+                φ1ub = eval_Δ_at(Δ1, x1, β1)
+                ub = cost1plus2 + φ1ub # 🍀 ub(Δ1) is a valid upper bound of υ_MSDRO
+                gap = abs(ub - lb) / max( abs(lb), abs(ub) )
+                @info " t1: masterCnt[$(masterCnt[1])] ($vldt)lb = $lb | $ub = ub, gap = $gap"
+                if gap < 0.0001
+                    @info " 😊 gap < 0.01%, thus terminate "
+                    termination_flag[1] = true
+                end
+            end
+            x1V[1], β1V[1] = x1, β1
+            tV[1] = t2f
+        elseif ST == t2f 
+                x1, β1 = x1V[1], β1V[1]
+                _, index = eval_φ1ub(x1, β1)
+            x2, β2 = psi(psiCnt, x1, yM[:, :, index]) # 2️⃣ only a trial (x2, β2) is needed here
+            x2V[1], β2V[1] = x2, β2
+            tV[1] = t3
+        elseif ST == t3
+            x2, β2 = x2V[1], β2V[1]
+            φ2, Z = maximize_φ2_over_Z(x2, β2) # final stage eval is precise, therefore φ2ub ≡ φ2
+            cn, px2, pβ2 = gen_cut_for_ℶ2(x2, Z)
+            let 
+                lower = cn + ip(px2, x2) + ip(pβ2, β2)
+                upper = φ2
+                (lower - 0.001 > upper) && @error " final stage #1: lower = $lower | $upper = upper"
+                relerr = abs(upper - lower) / max(abs(upper), abs(lower))
+                relerr > 1e-5 && @error " final stage #2: lower = $lower | $upper = upper"
+                ZV[1] = Z
+                termination_flag[1] && break # 🌿🌿🌿🌿
+            end
+            pushSimplicial(Δ2, φ2, x2, β2) # ✅ Δ2 is a precise evaluation of φ2(x2, β2)
+            pushCut(ℶ2, x2, Z, cn, px2, pβ2) # ✅ ℶ2 is a valid underestimator of    φ2(x2, β2)
+            tV[1] = t2b
+        elseif ST == t2b 
+                x1, β1 = x1V[1], β1V[1]
+                φ1ub, index = eval_φ1ub(x1, β1)
+            ret = gen_cut_for_ℶ1(x1, yM[:, :, index])
+            if length(ret) == 1
+                tV[1] = t2f
+            else
+                pushCut(ℶ1, x1, index, ret...) # ✅ ℶ1(ℶ2) is a valid underestimator of φ1(x1, β1)
+                φ1ub < Inf && pushSimplicial(Δ1, φ1ub, x1, β1) # ⚠️ conditional update ✅ Δ1(Δ2) is a valid overestimator of φ1(x1, β1)
+                tV[1] = t1
+            end
+        end
+    end
+end
+
+# post convergent 🌴🌴🌴
+RCI_ϵ = 5e-6
+obj_ast = master(masterIsMature, masterCnt, ℶ1)[2] # the υ*
+for i in eachindex(ℶ1["cn"]) # RCI for ℶ1
+    ℶ1["st"][i] && master(i) && (ℶ1["st"][i] = false)
+end
+for i in eachindex(ℶ1["cn"]) # ⚠️⚠️⚠️⚠️ This shouldn't be done twice, but we do it due to unknown reasons 
+    ℶ1["st"][i] && master(i) && (ℶ1["st"][i] = false)
+end
+@assert obj_ast - RCI_ϵ <= master(masterIsMature, masterCnt, ℶ1)[2] " the objective value is altered after RC removed "
+@assert any( master.(findall(ℶ1["st"])) ) == false " still ∃ 1 redundant constr, IDK what's wrong, but please redo the RCI loop "
+ℶ1lite = let
+    iVec = ℶ1["st"]
+    ℶ1lite = Dict(
+        "st" => Bool[],
+        "x" =>  typeof(x1)[],
+        "rv" => Int[],
+        "cn" => Float64[],
+        "px" => typeof(x1)[],
+        "pβ" => typeof(β1)[]
+    )
+    [ℶ1lite[k] = ℶ1[k][iVec] for k in keys(ℶ1)]
+    ℶ1lite
+end # length = 63
+for i in eachindex(ℶ2["cn"]) # this loop conducts RCI for ℶ2
+    if ℶ2["st"][i]
+        i_is_vital = [false]
+        for (x1, j) in zip(ℶ1lite["x"], ℶ1lite["rv"])
+            Y = yM[:, :, j]
+            psi_obj_ast = psi(x1, Y) # at this current ℶ2's state
+            if !psi(i, x1, Y, psi_obj_ast)
+                i_is_vital[1] = true
+                break
+            end
+        end
+        i_is_vital[1] || (ℶ2["st"][i] = false)
+    end
+end # after applied once, length = 176; This could be done only once, because it is enough
+ℶ2lite = let
+    iVec = ℶ2["st"]
+    ℶ2lite = Dict(
+        "st" => Bool[],
+        "x" =>  typeof(x2)[],
+        "rv" => typeof(Z)[],
+        "cn" => Float64[],
+        "px" => typeof(x2)[],
+        "pβ" => typeof(β2)[]
+    )
+    [ℶ2lite[k] = ℶ2[k][iVec] for k in keys(ℶ2)]
+    ℶ2lite
+end
+
+yM_lite = let # reduce Z to finite distribution, just as Y
+    yiVec = unique(ℶ1lite["rv"])
+    yM_lite = [yM[t, w, i] for t in 1:T, w in 1:W, i in yiVec]
+end # reduce from 32 to 31
+# for (x1, j) in zip(ℶ1lite["x"], ℶ1lite["rv"]) # establish ℶψ
+#     cn, px1, pY = gen_cut_for_ψ(x1, yM[:, :, j])
+#     (push!(ℶψ["cn"], cn); push!(ℶψ["px1"], px1); push!(ℶψ["pY"], pY))
+# end
+zM_lite = let # reduce Z to finite distribution, just as Y
+    zListPrim = deepcopy(ℶ2lite["rv"])
+    zList = empty(zListPrim)
+    while !isempty(zListPrim)
+        Z_new = pop!(zListPrim)
+        is_new = trues(1)
+        for Z in zList
+            if norm1(Z_new .- Z) < 1/2
+                is_new[1] = false
+                break
+            end
+        end
+        is_new[1] && push!(zList, Z_new)
+    end
+    zM_lite = [zList[i][t, l] for t in 1:T, l in 1:L, i in eachindex(zList)]
+end # reduce from 176 to 174
+
+# generate cut for ℶu
+function gen_Q(x1, yM) # also based on current surrogate of ℶ2
+    N = size(yM, 3)
+    cost_list = [psi(x1, yM[:, :, j]) for j in 1:N]
+    ø = JumpModel(0)
+    JuMP.@variable(ø, p[j = 1:N] >= 0.)
+    JuMP.@constraint(ø, sum(p) == 1.)
+    JuMP.@constraint(ø, [t = 1:T, w = 1:W], sum(p[j] * yM[t, w, j] for j in 1:N) == MY[t, w])
+    JuMP.@objective(ø, Max, ip(p, cost_list))
+    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+    @assert status == JuMP.OPTIMAL
+    return Q = JuMP.value.(p)
+end
+function gen_P(x1, Y, zM) # restrict Z to the discrete support in ZM
+    N = size(zM, 3)
+    cost_list = [f(x1, Y, zM[:, :, i]) for i in 1:N]
+    ø = JumpModel(0)
+    JuMP.@variable(ø, p[i = 1:N] >= 0.)
+    JuMP.@constraint(ø, sum(p) == 1.)
+    JuMP.@constraint(ø, [t = 1:T, l = 1:L], sum(p[i] * zM[t, l, i] for i in 1:N) == MZ[t, l])
+    JuMP.@objective(ø, Max, ip(p, cost_list))
+    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+    @assert status == JuMP.OPTIMAL
+    return P = JuMP.value.(p)
+end
+function gen_cut_f_wrt_x1(x1Γ, Y, Z)
     ø = JumpModel(0)
     JuMP.@variable(ø, u[t = 1:T, g = 1:G])
     JuMP.@variable(ø, v[t = 1:T, g = 1:G])
     JuMP.@variable(ø, x[t = 1:T, g = 1:G])
-    JuMP.@variable(ø, Y[t = 1:T, w = 1:W])
-    JuMP.@constraint(ø, cpu[t = 1:T, g = 1:G], u[t, g] == x2[1][1][t, g])
-    JuMP.@constraint(ø, cpv[t = 1:T, g = 1:G], v[t, g] == x2[1][2][t, g])
-    JuMP.@constraint(ø, cpx[t = 1:T, g = 1:G], x[t, g] == x2[1][3][t, g])
-    JuMP.@constraint(ø, cpY[t = 1:T, w = 1:W], Y[t, w] == x2[2][t, w])
-        JuMP.@variable(ø, p[t = 1:T, g = 1:G])       # generator power
-        JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # generator cutback
-        JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.) # wind curtail
-        JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.) # load shedding
+    JuMP.@constraint(ø, cpu[t = 1:T, g = 1:G], u[t, g] == x1Γ[1][t, g])
+    JuMP.@constraint(ø, cpv[t = 1:T, g = 1:G], v[t, g] == x1Γ[2][t, g])
+    JuMP.@constraint(ø, cpx[t = 1:T, g = 1:G], x[t, g] == x1Γ[3][t, g])
+        JuMP.@variable(ø, p[t = 1:T, g = 1:G])      
+        JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.)
+        JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.)
+        JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.)
             JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w]) 
             JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
             JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
@@ -453,136 +855,64 @@ function gen_cut_f_wrt_x2(x2, Z)
     JuMP.@objective(ø, Min, primobj) # JuMP.set_attribute(ø, "QCPDual", 1)
     (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
     if status != JuMP.OPTIMAL
-        error(" in gen_cut_f_wrt_x2(): $status ")
+        error(" in gen_cut_f_wrt_x1(): $status ")
     else
         px1 = JuMP.dual.(cpu), JuMP.dual.(cpv), JuMP.dual.(cpx)
-        pY  = JuMP.dual.(cpY)
-        px2 = px1, pY
-        cn = JuMP.objective_value(ø) - ip(px2, x2)
-        return cn, px2
-    end
-end
-function gen_cut_for_ℶ1(x1, Y) # t2b
-    ret = gen_cut_ψ_wrt_x1(x1, Y)
-    if length(ret) == 1
-        return ret
-    else
-        cn, px1 = ret
-        pβ1 = -Y # 💡 this is fixed, and irrespective of 'β1'
-        return cn, px1, pβ1
-    end
-end
-function gen_cut_for_ℶ2(x2, Z)
-    cn, px2 = gen_cut_f_wrt_x2(x2, Z)
-    pβ2 = -Z # 💡 this is fixed, and irrespective of 'β2'
-    return cn, px2, pβ2
-end
-function gen_cut_ψ_wrt_x1(x1Γ, Y)
-    R2, cnV2, px2V2, pβ2V2 = let
-        cnV2, px2V2, pβ2V2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"]
-        length(cnV2), cnV2, px2V2, pβ2V2
-    end
-    @assert R2 >= 1 " in gen_cut_ψ_wrt_x1: #R2 "
-    ø = JumpModel(0)
-    JuMP.@variable(ø, x1[i = 1:3, t = 1:T, g = 1:G]) # 'x1' as a part of x2
-        JuMP.@constraint(ø, cp[i = 1:3, t = 1:T, g = 1:G], x1[i, t, g] == x1Γ[i][t, g]) # 🌴 paradigm
-    JuMP.@variable(ø, β2[t = 1:T, l = 1:L]) # 🍀 should be unconstrained to ensure the validity of the cut generated
-    JuMP.@variable(ø, o2)
-        JuMP.@constraint(ø, [r = 1:R2], o2 >= cnV2[r] + ip(px2V2[r], ((x1[1, :, :], x1[2, :, :], x1[3, :, :]), Y)) + ip(pβ2V2[r], β2))
-    JuMP.@objective(ø, Min, ip(MZ, β2) + o2)
-    (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-    if status != JuMP.OPTIMAL
-        if status == JuMP.INFEASIBLE_OR_UNBOUNDED
-            JuMP.set_attribute(ø, "DualReductions", 0)
-            (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-        end
-        if status == JuMP.DUAL_INFEASIBLE
-            return -Inf
-        else
-            error("in gen_cut_ψ_wrt_x1: $status")
-        end
-    else
-        tmp = JuMP.dual.(cp)
-        px1 = tmp[1, :, :], tmp[2, :, :], tmp[3, :, :]
         cn = JuMP.objective_value(ø) - ip(px1, x1Γ)
         return cn, px1
     end
 end
-
-masterCnt, psiCnt = [2], [2]
-masterIsMature = falses(1)
-x1V, β1V, x2V, β2V, ZV = let
-    x1V, β1V = [x1], [β1]
-    x2V, β2V = [x2], [β2] # 💡 (x1, β1) -> Y -> β2 is essential; 'x2' is NOT essential
-    ZV = [Z]
-    x1V, β1V, x2V, β2V, ZV
+function gen_cut_for_ℶu(x1Γ, PD_Y::Tuple, PD_Z::Tuple)
+    (Q, yM), (P, zM) = PD_Y, PD_Z
+    px = zeros(T, G), zeros(T, G), zeros(T, G)
+    cn = 0.
+    px, cn = [px], [cn]
+    for (j, q_j) in enumerate(Q)
+        for (i, p_i) in enumerate(P)
+            p = q_j * p_i
+            cnji, pxji = gen_cut_f_wrt_x1(x1Γ, yM[:, :, j], zM[:, :, i])
+            cn[1] = cn[1]  + p  * cnji
+            px[1] = px[1] .+ p .* pxji
+        end
+    end
+    return px, cn = px[1], cn[1]
 end
-tV, termination_flag = [t1], falses(1)
-while true
-    ST = tV[1]
-    if ST == t1 
-        vldt, lb, x1, β1, cost1plus2, _ = master(masterIsMature, masterCnt, ℶ1)
-        let
-            φ1ub = eval_Δ_at(Δ1, x1, β1)
-            ub = cost1plus2 + φ1ub # 🍀 ub(Δ1) is a valid upper bound of υ_MSDRO
-            gap = abs(ub - lb) / max( abs(lb), abs(ub) )
-            @info " t1: masterCnt[$(masterCnt[1])] ($vldt)lb = $lb | $ub = ub, gap = $gap"
-            if gap < 0.0001
-                @info " 😊 gap < 0.01%, thus terminate "
-                termination_flag[1] = true
+norm1(x1::Tuple) = mapreduce(norm1, +, x1)
+x1_list = let # extract a list of vital x1's
+    x1_list_prim = deepcopy(ℶ1lite["x"])
+    x1_list = empty(x1_list_prim)
+    while !isempty(x1_list_prim)
+        x1_new = pop!(x1_list_prim)
+        is_new = trues(1)
+        for x1 in x1_list
+            if norm1(x1_new .- x1) < 1/2
+                is_new[1] = false
+                break
             end
         end
-        x1V[1], β1V[1] = x1, β1
-        tV[1] = t2f
-    elseif ST == t2f 
-            x1, β1 = x1V[1], β1V[1]
-            _, index = eval_φ1ub(x1, β1)
-            Y = yM[:, :, index]
-        x2, β2 = psi(psiCnt, x1, Y, ℶ2) # 2️⃣ only a trial (x2, β2) is needed here
-        x2V[1], β2V[1] = x2, β2
-        tV[1] = t3
-    elseif ST == t3
-        x2, β2 = x2V[1], β2V[1]
-        φ2, Z = maximize_φ2_over_Z(x2, β2) # final stage eval is precise, therefore φ2ub ≡ φ2
-        cn, px2, pβ2 = gen_cut_for_ℶ2(x2, Z)
-        let 
-            lower = cn + ip(px2, x2) + ip(pβ2, β2)
-            upper = φ2
-            (lower - 0.001 > upper) && @error " final stage #1: lower = $lower | $upper = upper"
-            relerr = abs(upper - lower) / max(abs(upper), abs(lower))
-            relerr > 1e-5 && @error " final stage #2: lower = $lower | $upper = upper"
-            ZV[1] = Z
-            termination_flag[1] && break # 🌿🌿🌿🌿
-        end
-        pushSimplicial(Δ2, φ2, x2, β2) # ✅ Δ2 is a precise evaluation of φ2(x2, β2)
-        pushCut(ℶ2, x2, Z, cn, px2, pβ2) # ✅ ℶ2 is a valid underestimator of    φ2(x2, β2)
-        tV[1] = t2b
-    elseif ST == t2b 
-            x1, β1 = x1V[1], β1V[1]
-            φ1ub, index = eval_φ1ub(x1, β1)
-            Y = yM[:, :, index]
-        ret = gen_cut_for_ℶ1(x1, Y)
-        if length(ret) == 1
-            tV[1] = t2f
-        else
-            pushCut(ℶ1, x1, Y, ret...) # ✅ ℶ1(ℶ2) is a valid underestimator of φ1(x1, β1)
-            φ1ub < Inf && pushSimplicial(Δ1, φ1ub, x1, β1) # ⚠️ conditional update ✅ Δ1(Δ2) is a valid overestimator of φ1(x1, β1)
-            tV[1] = t1
+        is_new[1] && push!(x1_list, x1_new)
+    end
+    x1_list
+end
+Prob_ϵ = 1e-5
+function build_initial_ℶu(Prob_ϵ, x1_list, yM, zM)
+    for x1 in x1_list # 🍀 x1
+        Q = gen_Q(x1, yM)
+        indVec = Q .> Prob_ϵ
+        Qeff, yMeff = Q[indVec], yM[:, :, indVec] # 🍀 PD of Y
+        for Yind in 1:size(yMeff, 3)
+            Y = yMeff[:, :, Yind]
+            P = gen_P(x1, Y, zM)
+            indVec = P .> Prob_ϵ
+            Peff, zMeff = P[indVec], zM[:, :, indVec] # 🍀 PD of Z
+            px, cn = gen_cut_for_ℶu(x1, (Qeff, yMeff), (Peff, zMeff))
+            (push!(ℶu["px"], px), push!(ℶu["cn"], cn))
         end
     end
 end
-
-# after termination
-u, v, x = x1V[1]
-β1, β2 = β1V[1], β2V[1]
-Y, Z = x2V[1][2], ZV[1]
-v1 =  ip(MY, β1)
-v2 = -ip(β1, Y)
-v3 =  ip(MZ, β2)
-v4 = -ip(β2, Z)
-sum([v1, v2, v3, v4])
-
-length(ℶ1["cn"])
-length(ℶ2["cn"])
-length(Δ1["f"])
-length(Δ2["f"])
+build_initial_ℶu(Prob_ϵ, x1_list, yM_lite, zM_lite)
+lb, x1 = master_ℶu()
+let # check the performance of `initial_ℶu`
+    gap = (obj_ast - lb) / obj_ast
+    @info "gap = $gap"
+end
