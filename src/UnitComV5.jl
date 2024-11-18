@@ -14,10 +14,9 @@ end
     t3
     t2b
 end
-# OPTIMAL VALUE of v_2^MSDRO = 5.87190287
-# lb = 5.715297320584483, by the build_initial_ℶu(Prob_ϵ, x1_list, yM_lite, zM_lite)
-# [ Info: gap = 0.026670323729297996
-# 17/11/24
+# OPTIMAL VALUE of v_2^MSDRO = 5.87190287; SP_lb = 5.862531957961686; gap = 0.00159589
+# a result of lesser importance: (lb = 5.715297320584483, by the `build an initial ℶu`)
+# 18/11/24
 global_logger(ConsoleLogger(Info))
 GRB_ENV = Gurobi.Env()
 ip(x, y) = LinearAlgebra.dot(x, y)
@@ -126,7 +125,7 @@ u, v, x, Y, Z, x1, x2, β1, β2 = let
     β2, Z = rand(T, L), rand(T, L)
     u, v, x, Y, Z, x1, x2, β1, β2
 end
-ℶ1, ℶ2, Δ1, Δ2, ℶu, ℶψ = let
+ℶ1, ℶ2, Δ1, Δ2, ℶu = let
     ℶu = Dict( # surrogate \underline_{h} (SP_lb_surrogate)
         "cn" => Float64[],
         "px" => typeof(x1)[]
@@ -138,11 +137,6 @@ end
         "cn" => Float64[],
         "px" => typeof(x1)[],
         "pβ" => typeof(β1)[]
-    )
-    ℶψ = Dict(
-        "cn" => Float64[],
-        "px1" => typeof(x1)[], # 1st-stage decision
-        "pY" => typeof(Y)[] # the former r.v.
     )
     ℶ2 = Dict(
         "st" => Bool[],
@@ -162,12 +156,12 @@ end
         "x" => typeof(x2)[],
         "β" => typeof(β2)[]
     )
-    ℶ1, ℶ2, Δ1, Δ2, ℶu, ℶψ
+    ℶ1, ℶ2, Δ1, Δ2, ℶu
 end
-begin
-    function pushCut(D, x, rv, cn, px, pβ) return (push!(D["st"], true); push!(D["x"], x); push!(D["rv"], rv); push!(D["cn"], cn); push!(D["px"], px); push!(D["pβ"], pβ)) end
-    function pushSimplicial(D, f, x, β) return (push!(D["f"], f); push!(D["x"], x); push!(D["β"], β)) end
-    function master() # initialization version
+
+function pushCut(D, x, rv, cn, px, pβ) return (push!(D["st"], true); push!(D["x"], x); push!(D["rv"], rv); push!(D["cn"], cn); push!(D["px"], px); push!(D["pβ"], pβ)) end
+function pushSimplicial(D, f, x, β) return (push!(D["f"], f); push!(D["x"], x); push!(D["β"], β)) end
+function master() # initialization version
             ø = JumpModel(0)
             begin
                 JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin) # 🌴 if integer is relaxed, unexpected outcomes might occur due to vague physical problem
@@ -184,8 +178,8 @@ begin
             x1 = JuMP.value.(u), JuMP.value.(v), JuMP.value.(x)
             β1 = JuMP.value.(β1)
             return x1, β1
-    end
-    function master(i, obj_ast = obj_ast) # RCI
+end
+function master(i, obj_ast = obj_ast) # RCI
             R2, cnV2, px1V2, pβ1V2, stV2 = let
                 cnV2, px1V2, pβ1V2, stV2 = ℶ1["cn"], ℶ1["px"], ℶ1["pβ"], ℶ1["st"]
                 length(cnV2), cnV2, px1V2, pβ1V2, stV2
@@ -214,26 +208,26 @@ begin
                 end
             end
             return is_redundant = false
+end
+function master(masterIsMature, iCnt, ℶ1) # portal
+    R2, cnV2, px1V2, pβ1V2, stV2 = let
+        cnV2, px1V2, pβ1V2, stV2 = ℶ1["cn"], ℶ1["px"], ℶ1["pβ"], ℶ1["st"]
+        length(cnV2), cnV2, px1V2, pβ1V2, stV2
     end
-    function master(masterIsMature, iCnt, ℶ1) # portal
-            R2, cnV2, px1V2, pβ1V2, stV2 = let
-                cnV2, px1V2, pβ1V2, stV2 = ℶ1["cn"], ℶ1["px"], ℶ1["pβ"], ℶ1["st"]
-                length(cnV2), cnV2, px1V2, pβ1V2, stV2
-            end
-            if masterIsMature[1]
-                lb, x1, β1, cost1plus2, o3 = master(R2, cnV2, px1V2, pβ1V2, stV2) # 3️⃣
-                return true, lb, x1, β1, cost1plus2, o3
-            else
-                if R2 >= 1
-                    lb, x1, β1, cost1plus2, o3 = master(masterIsMature, iCnt, R2, cnV2, px1V2, pβ1V2, stV2) # 2️⃣
-                    return false, lb, x1, β1, cost1plus2, o3
-                else
-                    x1, β1 = master() # 1️⃣
-                    return false, -Inf, x1, β1, NaN, -Inf
-                end
-            end
+    if masterIsMature[1]
+        lb, x1, β1, cost1plus2, o3 = master(R2, cnV2, px1V2, pβ1V2, stV2) # 3️⃣
+        return true, lb, x1, β1, cost1plus2, o3
+    else
+        if R2 >= 1
+            lb, x1, β1, cost1plus2, o3 = master(masterIsMature, iCnt, R2, cnV2, px1V2, pβ1V2, stV2) # 2️⃣
+            return false, lb, x1, β1, cost1plus2, o3
+        else
+            x1, β1 = master() # 1️⃣
+            return false, -Inf, x1, β1, NaN, -Inf
+        end
     end
-    function master(masterIsMature, iCnt, R2, cnV2, px1V2, pβ1V2, stV2) # enforcing boundedness version
+end
+function master(masterIsMature, iCnt, R2, cnV2, px1V2, pβ1V2, stV2) # enforcing boundedness version
             ø = JumpModel(0)
             begin
                 JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin) # 🌴 if integer is relaxed, unexpected outcomes might occur due to vague physical problem
@@ -269,8 +263,8 @@ begin
             end
             (norm1(β1) > βnormBnd - Δβ/3) ? (iCnt[1] += 1) : (masterIsMature[1] = true)
             return lb, x1, β1, cost1plus2, o3
-    end
-    function master(R2, cnV2, px1V2, pβ1V2, stV2) # final version
+end
+function master(R2, cnV2, px1V2, pβ1V2, stV2) # final version
             ø = JumpModel(0)
             begin
                 JuMP.@variable(ø, u[t = 1:T, g = 1:G], Bin)
@@ -299,8 +293,8 @@ begin
                 lb, x1, β1, cost1plus2, o3
             end
             return lb, x1, β1, cost1plus2, o3
-    end
-    function master_ℶu() # 🌳 valid lb for v^independent is from `lb` here
+end
+function master_ℶu() # 🌳 valid lb for v^independent is from `lb` here
         R2, cnV2, px1V2 = let
             cnV2, px1V2 = ℶu["cn"], ℶu["px"]
             length(cnV2), cnV2, px1V2
@@ -326,8 +320,8 @@ begin
             lb, x1, o
         end
         return lb, x1
-    end
-    function eval_Δ_at(Δ, x, β) # t1, in termination criterion
+end
+function eval_Δ_at(Δ, x, β) # t1, in termination criterion
         isempty(Δ["f"]) && return Inf
         fV, xV, R2, βV = Δ["f"], Δ["x"], length(Δ["f"]), Δ["β"]
         ø = JumpModel(0)
@@ -350,8 +344,8 @@ begin
         else
             return JuMP.objective_value(ø)
         end
-    end
-    function eval_φ1ub(x1, β1) # t2: a max-min problem to choose worst Y
+end
+function eval_φ1ub(x1, β1) # t2: a max-min problem to choose worst Y
         function eval_xby(x1, β1, Y)
             R2, fV, x2V, β2V = let
                 fV, x2V, β2V = Δ2["f"], Δ2["x"], Δ2["β"]
@@ -397,8 +391,8 @@ begin
             end
         end
         return (φ1ub, index) = findmax(normalVec)
-    end
-    function psi(iCnt, x1, Y) # t2f, 
+end
+function psi(iCnt, x1, Y) # t2f, 
             x2 = x1, Y # 🍀 this is fixed
             R2, cnV2, px2V2, pβ2V2 = let
                 cnV2, px2V2, pβ2V2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"]
@@ -431,8 +425,8 @@ begin
                 end
             end
             return x2, β2
-    end
-    function psi(x1, Y) # [post convergent] free of β_bound version
+end
+function psi(x1, Y) # [post convergent] free of β_bound version
         x2 = x1, Y # 🍀 this is fixed
         R2, cnV2, px2V2, pβ2V2, stV2 = let
             cnV2, px2V2, pβ2V2, stV2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"], ℶ2["st"]
@@ -447,9 +441,11 @@ begin
         JuMP.@objective(ø, Min, ip(MZ, β2) + o2)
         (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
         @assert status == JuMP.OPTIMAL " in psi(free of β_bound version): $status "
-        return psi_obj_ast = JuMP.objective_value(ø) 
-    end
-    function psi(i, x1, Y, psi_obj_ast) # [post convergent] RCI
+        psi_obj_ast = JuMP.objective_value(ø)
+        β2 = JuMP.value.(β2)
+        return psi_obj_ast, x2, β2
+end
+function psi(i, x1, Y, psi_obj_ast) # [post convergent] RCI
             x2 = x1, Y # 🍀 this is fixed
             R2, cnV2, px2V2, pβ2V2, stV2 = let
                 cnV2, px2V2, pβ2V2, stV2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"], ℶ2["st"]
@@ -471,8 +467,8 @@ begin
                 end
             end
             return i_is_redun_at_x1_Y = false
-    end
-    function maximize_φ2_over_Z(x2, β2)
+end
+function maximize_φ2_over_Z(x2, β2)
         function f_primal( x2, Z, ::Nothing ) # convex conic program
             JuMP.@variable(ø, p[t = 1:T, g = 1:G])       # generator power
             JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # generator cutback
@@ -521,19 +517,12 @@ begin
             JuMP.@expression(ø, Yobj, sum(Y[t, w] * ( Dbl[t] - Dvp[t, w]) for t in 1:T, w in 1:W))
             JuMP.@expression(ø, Zobj, sum(Z[t, l] * (-Dbl[t] - Dzt[t, l]) for t in 1:T, l in 1:L))
             JuMP.@expression(ø, dualobj, xobj + Yobj + Zobj)
-        JuMP.@objective(ø, Max, -ip(β2, Z) + dualobj)
+        JuMP.@objective(ø, Max, -ip(β2, Z) + dualobj) # 🍀 a bilinear program
         (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-        if status != JuMP.OPTIMAL
-            error(" in maximize_φ2_over_Z(): $status ")
-        else
-            let
-                vio = JuMP.get_attribute(ø, Gurobi.ModelAttribute("MaxVio"))
-                vio > 5e-6 && @warn "vio = $vio"
-            end
-            return φ2, Z = JuMP.objective_value(ø), JuMP.value.(Z)
-        end
-    end
-    function gen_cut_for_ℶ1(x1, Y) # t2b
+        @assert status == JuMP.OPTIMAL " in maximize_φ2_over_Z(): $status "
+        return φ2, Z = JuMP.objective_value(ø), JuMP.value.(Z)
+end
+function gen_cut_for_ℶ1(x1, Y) # t2b
         function gen_cut_ψ_wrt_x1(x1Γ, Y)
             R2, cnV2, px2V2, pβ2V2 = let
                 cnV2, px2V2, pβ2V2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"]
@@ -574,8 +563,8 @@ begin
             pβ1 = -Y # 💡 this is fixed, and irrespective of 'β1'
             return cn, px1, pβ1
         end
-    end
-    function gen_cut_for_ψ(x1Γ, YΓ) # 🌳 [post 3S-MSARO's convergent] 
+end
+function gen_cut_for_ψ(x1Γ, YΓ) # 🌳 [post 3S-MSARO's convergent] 
         R2, cnV2, px2V2, pβ2V2 = let
             cnV2, px2V2, pβ2V2 = ℶ2["cn"], ℶ2["px"], ℶ2["pβ"]
             R2 = length(cnV2)
@@ -603,9 +592,9 @@ begin
             end
             return cn, px1, pY
         end
-    end
-    function gen_cut_for_ℶ2(x2, Z)
-        function gen_cut_f_wrt_x2(x2, Z)
+end
+function gen_cut_for_ℶ2(x2, Z)
+        function gen_cut_f_wrt_x2(x2, Z) # this cut is always tight
             ø = JumpModel(0)
             JuMP.@variable(ø, u[t = 1:T, g = 1:G])
             JuMP.@variable(ø, v[t = 1:T, g = 1:G])
@@ -643,29 +632,8 @@ begin
         cn, px2 = gen_cut_f_wrt_x2(x2, Z)
         pβ2 = -Z # 💡 this is fixed, and irrespective of 'β2'
         return cn, px2, pβ2
-    end
-    function f(x1, Y, Z)
-        u, v, x = x1
-        ø = JumpModel(0)
-        JuMP.@variable(ø, p[t = 1:T, g = 1:G])       
-        JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) 
-        JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.) 
-        JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.) 
-            JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w]) 
-            JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
-            JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
-            JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G], p[t, g] >= Gℷ["PI"][g] * x[t, g])
-            JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G], Gℷ["PS"][g] * x[t, g] >= p[t, g])
-        JuMP.@constraint(ø, Dbl[t = 1:T], sum(Z[t, :]) + sum(ϖ[t, :]) + sum(ϱ[t, :]) == sum(Y[t, :]) + sum(p[t, :]) + sum(ζ[t, :]))
-        JuMP.@expression(ø, lscost, sum(Lℷ["CL"][t, l] * ζ[t, l] for t in 1:T, l in 1:L))
-        JuMP.@expression(ø, gccost, sum(   Gℷ["CG"][g] * ϱ[t, g] for t in 1:T, g in 1:G))
-        JuMP.@expression(ø, primobj, lscost + gccost)
-        JuMP.@objective(ø, Min, primobj)
-        (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
-        @assert status == JuMP.OPTIMAL " in f(x1, Y, Z): $status "
-        return JuMP.objective_value(ø)
-    end
 end
+
 begin
     masterCnt, psiCnt = [2], [2]
     masterIsMature = falses(1)
@@ -729,16 +697,16 @@ begin
     end
 end
 
-# post convergent 🌴🌴🌴
+### post convergent 🌴🌴🌴
 RCI_ϵ = 5e-6
-obj_ast = master(masterIsMature, masterCnt, ℶ1)[2] # the υ*
+obj_ast = master([true], nothing, ℶ1)[2] # the υ*
 for i in eachindex(ℶ1["cn"]) # RCI for ℶ1
     ℶ1["st"][i] && master(i) && (ℶ1["st"][i] = false)
 end
 for i in eachindex(ℶ1["cn"]) # ⚠️⚠️⚠️⚠️ This shouldn't be done twice, but we do it due to unknown reasons 
     ℶ1["st"][i] && master(i) && (ℶ1["st"][i] = false)
 end
-@assert obj_ast - RCI_ϵ <= master(masterIsMature, masterCnt, ℶ1)[2] " the objective value is altered after RC removed "
+@assert obj_ast - RCI_ϵ <= master([true], nothing, ℶ1)[2] " the objective value is altered after RC removed "
 @assert any( master.(findall(ℶ1["st"])) ) == false " still ∃ 1 redundant constr, IDK what's wrong, but please redo the RCI loop "
 ℶ1lite = let
     iVec = ℶ1["st"]
@@ -758,7 +726,7 @@ for i in eachindex(ℶ2["cn"]) # this loop conducts RCI for ℶ2
         i_is_vital = [false]
         for (x1, j) in zip(ℶ1lite["x"], ℶ1lite["rv"])
             Y = yM[:, :, j]
-            psi_obj_ast = psi(x1, Y) # at this current ℶ2's state
+            psi_obj_ast = psi(x1, Y)[1] # at this current ℶ2's state
             if !psi(i, x1, Y, psi_obj_ast)
                 i_is_vital[1] = true
                 break
@@ -780,56 +748,66 @@ end # after applied once, length = 176; This could be done only once, because it
     [ℶ2lite[k] = ℶ2[k][iVec] for k in keys(ℶ2)]
     ℶ2lite
 end
-
-yM_lite = let # reduce Z to finite distribution, just as Y
-    yiVec = unique(ℶ1lite["rv"])
-    yM_lite = [yM[t, w, i] for t in 1:T, w in 1:W, i in yiVec]
-end # reduce from 32 to 31
-# for (x1, j) in zip(ℶ1lite["x"], ℶ1lite["rv"]) # establish ℶψ
-#     cn, px1, pY = gen_cut_for_ψ(x1, yM[:, :, j])
-#     (push!(ℶψ["cn"], cn); push!(ℶψ["px1"], px1); push!(ℶψ["pY"], pY))
-# end
-zM_lite = let # reduce Z to finite distribution, just as Y
+zM_lite = let
     zListPrim = deepcopy(ℶ2lite["rv"])
     zList = empty(zListPrim)
-    while !isempty(zListPrim)
-        Z_new = pop!(zListPrim)
+    for Z0 in zListPrim
         is_new = trues(1)
         for Z in zList
-            if norm1(Z_new .- Z) < 1/2
+            if norm1(Z0 .- Z) < 1/2
                 is_new[1] = false
                 break
             end
         end
-        is_new[1] && push!(zList, Z_new)
+        is_new[1] && push!(zList, Z0)
     end
     zM_lite = [zList[i][t, l] for t in 1:T, l in 1:L, i in eachindex(zList)]
 end # reduce from 176 to 174
-
 # generate cut for ℶu
-function gen_Q(x1, yM) # also based on current surrogate of ℶ2
-    N = size(yM, 3)
-    cost_list = [psi(x1, yM[:, :, j]) for j in 1:N]
+function gen_Q(x1, yM) # generate a PD Q as long as it ∈ the ambiguity set
+    S = size(yM, 3)
+    cost_list = [psi(x1, yM[:, :, s])[1] for s in 1:S] # 🍟 ℶ2 inside 
     ø = JumpModel(0)
-    JuMP.@variable(ø, p[j = 1:N] >= 0.)
+    JuMP.@variable(ø, p[1:S] >= 0.)
     JuMP.@constraint(ø, sum(p) == 1.)
-    JuMP.@constraint(ø, [t = 1:T, w = 1:W], sum(p[j] * yM[t, w, j] for j in 1:N) == MY[t, w])
+    JuMP.@constraint(ø, [t = 1:T, w = 1:W], sum(yM[t, w, s] * p[s] for s in 1:S) == MY[t, w])
     JuMP.@objective(ø, Max, ip(p, cost_list))
     (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
     @assert status == JuMP.OPTIMAL
-    return Q = JuMP.value.(p)
+    return Q = JuMP.value.(p) # since finite support is fixed, we only provide a prob vector
 end
 function gen_P(x1, Y, zM) # restrict Z to the discrete support in ZM
-    N = size(zM, 3)
-    cost_list = [f(x1, Y, zM[:, :, i]) for i in 1:N]
+    function f(x1, Y, Z)
+        u, v, x = x1
+        ø = JumpModel(0)
+        JuMP.@variable(ø, p[t = 1:T, g = 1:G])       
+        JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) 
+        JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.) 
+        JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.) 
+            JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w]) 
+            JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
+            JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
+            JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G], p[t, g] >= Gℷ["PI"][g] * x[t, g])
+            JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G], Gℷ["PS"][g] * x[t, g] >= p[t, g])
+        JuMP.@constraint(ø, Dbl[t = 1:T], sum(Z[t, :]) + sum(ϖ[t, :]) + sum(ϱ[t, :]) == sum(Y[t, :]) + sum(p[t, :]) + sum(ζ[t, :]))
+        JuMP.@expression(ø, lscost, sum(Lℷ["CL"][t, l] * ζ[t, l] for t in 1:T, l in 1:L))
+        JuMP.@expression(ø, gccost, sum(   Gℷ["CG"][g] * ϱ[t, g] for t in 1:T, g in 1:G))
+        JuMP.@expression(ø, primobj, lscost + gccost)
+        JuMP.@objective(ø, Min, primobj)
+        (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
+        @assert status == JuMP.OPTIMAL " in f(x1, Y, Z): $status "
+        return JuMP.objective_value(ø)
+    end
+    S = size(zM, 3)
+    cost_list = [f(x1, Y, zM[:, :, s]) for s in 1:S] # 🍟 precise evaluation
     ø = JumpModel(0)
-    JuMP.@variable(ø, p[i = 1:N] >= 0.)
+    JuMP.@variable(ø, p[1:S] >= 0.)
     JuMP.@constraint(ø, sum(p) == 1.)
-    JuMP.@constraint(ø, [t = 1:T, l = 1:L], sum(p[i] * zM[t, l, i] for i in 1:N) == MZ[t, l])
+    JuMP.@constraint(ø, [t = 1:T, l = 1:L], sum(zM[t, l, s] * p[s] for s in 1:S) == MZ[t, l])
     JuMP.@objective(ø, Max, ip(p, cost_list))
     (_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø))
     @assert status == JuMP.OPTIMAL
-    return P = JuMP.value.(p)
+    return P = JuMP.value.(p) # since finite support is fixed, we only provide a prob vector
 end
 function gen_cut_f_wrt_x1(x1Γ, Y, Z)
     ø = JumpModel(0)
@@ -881,38 +859,64 @@ norm1(x1::Tuple) = mapreduce(norm1, +, x1)
 x1_list = let # extract a list of vital x1's
     x1_list_prim = deepcopy(ℶ1lite["x"])
     x1_list = empty(x1_list_prim)
-    while !isempty(x1_list_prim)
-        x1_new = pop!(x1_list_prim)
+    for x0 in x1_list_prim
         is_new = trues(1)
         for x1 in x1_list
-            if norm1(x1_new .- x1) < 1/2
+            if norm1(x0 .- x1) < 1/2
                 is_new[1] = false
                 break
             end
         end
-        is_new[1] && push!(x1_list, x1_new)
+        is_new[1] && push!(x1_list, x0)
     end
     x1_list
 end
 Prob_ϵ = 1e-5
-function build_initial_ℶu(Prob_ϵ, x1_list, yM, zM)
-    for x1 in x1_list # 🍀 x1
-        Q = gen_Q(x1, yM)
-        indVec = Q .> Prob_ϵ
-        Qeff, yMeff = Q[indVec], yM[:, :, indVec] # 🍀 PD of Y
-        for Yind in 1:size(yMeff, 3)
-            Y = yMeff[:, :, Yind]
-            P = gen_P(x1, Y, zM)
-            indVec = P .> Prob_ϵ
-            Peff, zMeff = P[indVec], zM[:, :, indVec] # 🍀 PD of Z
-            px, cn = gen_cut_for_ℶu(x1, (Qeff, yMeff), (Peff, zMeff))
-            (push!(ℶu["px"], px), push!(ℶu["cn"], cn))
+function enrich_ℶu_at(x1, yMΓ, zMΓ, Prob_ϵ) # x1: current trial point; yM, zM: the current discrete support concerned
+    Q, yM = let # 🍀 effective PD of Y
+        Q_raw = gen_Q(x1, yMΓ)
+        indVec = Q_raw .> Prob_ϵ
+        Q_raw[indVec], yMΓ[:, :, indVec]
+    end
+    for s in 1:size(yM, 3)
+        Y = yM[:, :, s]
+        P, zM = let
+            P_raw = gen_P(x1, Y, zMΓ)
+            indVec = P_raw .> Prob_ϵ
+            P_raw[indVec], zMΓ[:, :, indVec]
         end
+        px, cn = gen_cut_for_ℶu(x1, (Q, yM), (P, zM))
+        (push!(ℶu["px"], px), push!(ℶu["cn"], cn))
     end
 end
-build_initial_ℶu(Prob_ϵ, x1_list, yM_lite, zM_lite)
-lb, x1 = master_ℶu()
-let # check the performance of `initial_ℶu`
-    gap = (obj_ast - lb) / obj_ast
-    @info "gap = $gap"
+function is_new_Z(Z, zM::Array{Float64, 3})
+    NZ = size(zM, 3)
+    for i in 1:NZ
+        norm1(zM[:, :, i] .- Z) < 1/2 && return false
+    end
+    return true
 end
+yM_ind_lite = unique(ℶ1lite["rv"])
+yM_lite = yM[:, :, yM_ind_lite]
+[enrich_ℶu_at(x1, yM_lite, zM_lite, Prob_ϵ) for x1 in x1_list] # 🌴 build an initial ℶu
+for ite in 1:typemax(Int)
+    lb, x1 = master_ℶu() # check out its quality immediately
+    let # check the performance of `initial_ℶu`
+        gap = (obj_ast - lb) / obj_ast
+        @info "ite = $ite, lb = $lb, gap = $gap " x1[3]
+    end
+    # if the model setting considers some support other than norm1 box of Y:
+    # if you want to involve potentially more Y, you'll have to give trial β1 condition on the current x1 trial
+    # to improve the worst-case-generation perefomance of Y, you'll also have to refine Δ2
+    # then you need to refine ℶ1 as well
+    # for simplicity we directly involve all Y because it is not cumbersome
+    for s in 1:NY # 1️⃣ to enrich ℶ2 such that psi's eval is more precise 2️⃣ enrich Z's support
+        _, x2, β2 = psi(x1, yM[:, :, s])
+        Z = maximize_φ2_over_Z(x2, β2)[2]
+        is_new_Z(Z, zM_lite) && (zM_lite = cat(zM_lite, Z; dims = 3))
+        cn, px2, pβ2 = gen_cut_for_ℶ2(x2, Z)
+        pushCut(ℶ2, x2, Z, cn, px2, pβ2)
+    end
+    enrich_ℶu_at(x1, yM, zM_lite, Prob_ϵ)
+end
+
