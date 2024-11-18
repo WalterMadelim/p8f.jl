@@ -14,7 +14,7 @@ end
     t3
     t2b
 end
-# OPTIMAL VALUE of v_2^MSDRO = 5.87190287; SP_lb = 5.862531957961686; gap = 0.00159589
+# OPTIMAL VALUE of v_2^MSDRO = 5.87190287; SP_lb = 5.869202028225719, gap = 0.000459960407436405
 # a result of lesser importance: (lb = 5.715297320584483, by the `build an initial ℶu`)
 # 18/11/24
 global_logger(ConsoleLogger(Info))
@@ -696,6 +696,9 @@ begin
         end
     end
 end
+# [ Info:  t1: masterCnt[338] (true)lb = 5.87190287106272 | 5.872868973792069 = ub, gap = 0.00016450268747010717
+# [ Info:  t1: masterCnt[338] (true)lb = 5.87190287106272 | 5.87190287106277 = ub, gap = 8.470506511325316e-15
+# [ Info:  😊 gap < 0.01%, thus terminate
 
 ### post convergent 🌴🌴🌴
 RCI_ϵ = 5e-6
@@ -920,3 +923,14 @@ for ite in 1:typemax(Int)
     enrich_ℶu_at(x1, yM, zM_lite, Prob_ϵ)
 end
 
+# ┌ Info: ite = 8, lb = 5.869202028225719, gap = 0.000459960407436405 
+# │   x1[3] =
+# │    8×3 Matrix{Float64}:
+# │     1.0  -0.0  1.0
+# │     1.0  -0.0  1.0
+# │     1.0  -0.0  1.0
+# │     1.0  -0.0  1.0
+# │     1.0  -0.0  1.0
+# │     1.0  -0.0  1.0
+# │     1.0  -0.0  1.0
+# └     1.0  -0.0  1.0
