@@ -1,131 +1,263 @@
-function f_primal( there is an additional -ip(beta2, Z) in the outer layer!!! )
-    JuMP.@variable(ø,  ϖ[t = 1:T, w = 1:W] >= 0.)
-    JuMP.@variable(ø,  ζ[t = 1:T, l = 1:L] >= 0.)
-    JuMP.@variable(ø,  ρ[t = 1:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø,  p[t = 1:T, g = 1:G])
-    JuMP.@variable(ø, p²[t = 1:T, g = 1:G])
-    JuMP.@variable(ø,  e[t = 1:T, g = 1:G] >= 0.)
-    JuMP.@constraint(ø, ℵW[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w])
-    JuMP.@constraint(ø, ℵL[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
-    JuMP.@constraint(ø, [t = 1:T, g = 1:G], [p²[t, g] + 1, p²[t, g] - 1, 2 * p[t, g]] in JuMP.SecondOrderCone())
-    JuMP.@constraint(ø, ℵe[t = 1:T, g = 1:G], e[t, g] >= Gℷ["C2"][g] * p²[t, g] + Gℷ["C1"][g] * p[t, g] + Gℷ["C0"][g] - (1 - x[t, g]) * Gℷ["M"][g])
-    JuMP.@constraint(ø, ℵdl1[g = 1:G], p[1, g] - Gℷ["ZP"][g]       >= -Gℷ["RD"][g] * x[1, g] - Gℷ["SD"][g] * v[1, g])
-    JuMP.@constraint(ø, ℵdl[t = 2:T, g = 1:G], p[t, g] - p[t-1, g] >= -Gℷ["RD"][g] * x[t, g] - Gℷ["SD"][g] * v[t, g])
-    JuMP.@constraint(ø, ℵdr1[g = 1:G], Gℷ["RU"][g] * Gℷ["ZS"][g] + Gℷ["SU"][g] * u[1, g]       >= p[1, g] - Gℷ["ZP"][g])
-    JuMP.@constraint(ø, ℵdr[t = 2:T, g = 1:G], Gℷ["RU"][g] * x[t-1, g] + Gℷ["SU"][g] * u[t, g] >= p[t, g] - p[t-1, g])
-    JuMP.@constraint(ø, ℵPI[t = 1:T, g = 1:G], p[t, g] >= Gℷ["PI"][g] * x[t, g])
-    JuMP.@constraint(ø, ℵPS[t = 1:T, g = 1:G], Gℷ["PS"][g] * x[t, g] >= p[t, g] + ρ[t, g])
-    JuMP.@constraint(ø, ℵbl[t = 1:T, b = 1:B],
-        sum(F[b, Gℷ["n"][g]] * p[t, g] for g in 1:G) + sum(F[b, Wℷ["n"][w]] * (Y[t, w] - ϖ[t, w]) for w in 1:W) - sum(F[b, Lℷ["n"][l]] * (Z[t, l] - ζ[t, l]) for l in 1:L) >= -Bℷ["BC"][b]
-    )
-    JuMP.@constraint(ø, ℵbr[t = 1:T, b = 1:B],
-        Bℷ["BC"][b] >= sum(F[b, Gℷ["n"][g]] * p[t, g] for g in 1:G) + sum(F[b, Wℷ["n"][w]] * (Y[t, w] - ϖ[t, w]) for w in 1:W) - sum(F[b, Lℷ["n"][l]] * (Z[t, l] - ζ[t, l]) for l in 1:L)
-    )
-    JuMP.@constraint(ø, ℵR[t = 1:T], sum(ρ[t, :]) >= SRD)
-    JuMP.@constraint(ø, ℵ0[t = 1:T], sum(Y[t, w] - ϖ[t, w] for w in 1:W) + sum(p[t, :]) - sum(Z[t, l] - ζ[t, l] for l in 1:L) >= 0.)
-    JuMP.@expression(ø, CP[t = 1:T], sum(Y[t, w] - ϖ[t, w] for w in 1:W) + sum(p[t, :]) - sum(Z[t, l] - ζ[t, l] for l in 1:L))
-    JuMP.@expression(ø, CW[t = 1:T, w = 1:W], Wℷ["CW"][t, w] * ϖ[t, w])
-    JuMP.@expression(ø, CL[t = 1:T, l = 1:L], Lℷ["CL"][t, l] * ζ[t, l])
-    JuMP.@expression(ø, CR[t = 1:T, g = 1:G], Gℷ["CR"][g]    * ρ[t, g])
-    JuMP.@expression(ø, COST2, sum(CW) + sum(CL) + sum(CR) + sum(e) + PE * sum(CP))
-    JuMP.@objective(ø, Min, COST2)
-end
 
-function f_slacked_primal()
-    JuMP.@variable(ø, s1[g = 1:G]          >= 0.)
-    JuMP.@variable(ø, s2[t = 2:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø, s3[t = 1:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø, s4[t = 1:T, b = 1:B] >= 0.)
-    JuMP.@variable(ø, s5[t = 1:T, b = 1:B] >= 0.)
-    # always feasible part
-    JuMP.@variable(ø,  ϖ[t = 1:T, w = 1:W] >= 0.)
-    JuMP.@variable(ø,  ζ[t = 1:T, l = 1:L] >= 0.)
-    JuMP.@variable(ø,  ρ[t = 1:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø,  p[t = 1:T, g = 1:G])
-    JuMP.@constraint(ø, ℵW[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w])
-    JuMP.@constraint(ø, ℵL[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
-    JuMP.@constraint(ø, ℵdl1[g = 1:G], p[1, g] - Gℷ["ZP"][g]       >= -Gℷ["RD"][g] * x[1, g] - Gℷ["SD"][g] * v[1, g])
-    JuMP.@constraint(ø, ℵdl[t = 2:T, g = 1:G], p[t, g] - p[t-1, g] >= -Gℷ["RD"][g] * x[t, g] - Gℷ["SD"][g] * v[t, g])
-    JuMP.@constraint(ø, ℵR[t = 1:T], sum(ρ[t, :]) >= SRD)
-    JuMP.@constraint(ø, ℵ0[t = 1:T], sum(Y[t, w] - ϖ[t, w] for w in 1:W) + sum(p[t, :]) - sum(Z[t, l] - ζ[t, l] for l in 1:L) >= 0.)
-    JuMP.@constraint(ø, ℵPI[t = 1:T, g = 1:G], p[t, g] >= Gℷ["PI"][g] * x[t, g])
-    # slacked part
-    JuMP.@constraint(ø, ℵdr1[g = 1:G], s1[g] + Gℷ["RU"][g] * Gℷ["ZS"][g] + Gℷ["SU"][g] * u[1, g]       >= p[1, g] - Gℷ["ZP"][g])
-    JuMP.@constraint(ø, ℵdr[t = 2:T, g = 1:G], s2[t, g] + Gℷ["RU"][g] * x[t-1, g] + Gℷ["SU"][g] * u[t, g] >= p[t, g] - p[t-1, g])
-    JuMP.@constraint(ø, ℵPS[t = 1:T, g = 1:G], s3[t, g] + Gℷ["PS"][g] * x[t, g] >= p[t, g] + ρ[t, g])
-    JuMP.@constraint(ø, ℵbl[t = 1:T, b = 1:B],
-        s4[t, b] + sum(F[b, Gℷ["n"][g]] * p[t, g] for g in 1:G) + sum(F[b, Wℷ["n"][w]] * (Y[t, w] - ϖ[t, w]) for w in 1:W) - sum(F[b, Lℷ["n"][l]] * (Z[t, l] - ζ[t, l]) for l in 1:L) >= -Bℷ["BC"][b]
-    )
-    JuMP.@constraint(ø, ℵbr[t = 1:T, b = 1:B],
-        s5[t, b] + Bℷ["BC"][b] >= sum(F[b, Gℷ["n"][g]] * p[t, g] for g in 1:G) + sum(F[b, Wℷ["n"][w]] * (Y[t, w] - ϖ[t, w]) for w in 1:W) - sum(F[b, Lℷ["n"][l]] * (Z[t, l] - ζ[t, l]) for l in 1:L)
-    )
-    JuMP.@objective(ø, Min, sum(s1) + sum(s2) + sum(s3) + sum(s4) + sum(s5))
-end
-
-function f_dual( there is an additional -ip(beta2, Z) in the outer layer!!! )
-    JuMP.@variable(ø, ℵQ1[t = 1:T, g = 1:G])
-    JuMP.@variable(ø, ℵQ2[t = 1:T, g = 1:G])
-    JuMP.@variable(ø, ℵQ3[t = 1:T, g = 1:G])
-    JuMP.@variable(ø, ℵW[t = 1:T, w = 1:W] >= 0.)
-    JuMP.@variable(ø, ℵL[t = 1:T, l = 1:L] >= 0.)
-    JuMP.@variable(ø, 0. <= ℵe[t = 1:T, g = 1:G] <= 1.) # RHS due to e >= 0
-    JuMP.@variable(ø, ℵdl1[g = 1:G] >= 0.)
-    JuMP.@variable(ø, ℵdl[t = 2:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø, ℵdr1[g = 1:G] >= 0.)
-    JuMP.@variable(ø, ℵdr[t = 2:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø, ℵPI[t = 1:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø, ℵPS[t = 1:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø, ℵbl[t = 1:T, b = 1:B] >= 0.)
-    JuMP.@variable(ø, ℵbr[t = 1:T, b = 1:B] >= 0.)
-    JuMP.@variable(ø, ℵR[t = 1:T] >= 0.)
-    JuMP.@variable(ø, ℵ0[t = 1:T] >= 0.)
-    JuMP.@constraint(ø,  ϖ[t = 1:T, w = 1:W],  ℵ0[t] + ℵW[t, w] + Wℷ["CW"][t, w] - PE + sum(F[b, Wℷ["n"][w]] * (ℵbl[t, b] - ℵbr[t, b]) for b in 1:B) >= 0.)
-    JuMP.@constraint(ø,  ζ[t = 1:T, l = 1:L], -ℵ0[t] + ℵL[t, l] + Lℷ["CL"][t, l] + PE + sum(F[b, Lℷ["n"][l]] * (ℵbr[t, b] - ℵbl[t, b]) for b in 1:B) >= 0.)
-    JuMP.@constraint(ø,  ρ[t = 1:T, g = 1:G], ℵPS[t, g] - ℵR[t] + Gℷ["CR"][g] >= 0.)
-    JuMP.@constraint(ø, p²[t = 1:T, g = 1:G], Gℷ["C2"][g] * ℵe[t, g] - ℵQ2[t, g] - ℵQ1[t, g] == 0.)
-    JuMP.@expression(ø,  pCommon[t = 1:T, g = 1:G], ℵPS[t, g] - ℵPI[t, g] - ℵ0[t] - 2. * ℵQ3[t, g] + Gℷ["C1"][g] * ℵe[t, g] + PE + sum((ℵbr[t, b] - ℵbl[t, b]) * F[b, Gℷ["n"][g]] for b in 1:B))
-    JuMP.@constraint(ø,  pt1[g = 1:G], pCommon[1, g] + ℵdr1[g] - ℵdl1[g] + ℵdl[2, g] - ℵdr[2, g] == 0.)
-    JuMP.@constraint(ø,  prest[t = 2:T-1, g = 1:G], pCommon[t, g] + ℵdr[t, g] - ℵdl[t, g] + ℵdl[t+1, g] - ℵdr[t+1, g] == 0.)
-    JuMP.@constraint(ø,  ptT[g = 1:G], pCommon[T, g] + ℵdr[T, g] - ℵdl[T, g] == 0.)
-    JuMP.@constraint(ø, [t = 1:T, g = 1:G], [ℵQ1[t, g], ℵQ2[t, g], ℵQ3[t, g]] in JuMP.SecondOrderCone())
-    JuMP.@objective(ø, Max, PE * sum(sum(Y[t, w] for w in 1:W) - sum(Z[t, l]  for l in 1:L) for t in 1:T)
-        + sum(ℵQ2 .- ℵQ1) + sum(ℵe[t, g] * (Gℷ["C0"][g] - (1 - x[t, g]) * Gℷ["M"][g]) for t in 1:T, g in 1:G)
-        - sum(ℵW[t, w] * Y[t, w] for t in 1:T, w in 1:W) - sum(ℵL[t, l] * Z[t, l] for t in 1:T, l in 1:L)
-        + SRD * sum(ℵR) + sum( ℵPI[t, g] * Gℷ["PI"][g] * x[t, g] - ℵPS[t, g] * Gℷ["PS"][g] * x[t, g]  for t in 1:T, g in 1:G)
-        + sum((ℵbr[t, b] - ℵbl[t, b]) * (sum(F[b, Wℷ["n"][w]] * Y[t, w] for w in 1:W) - sum(F[b, Lℷ["n"][l]] * Z[t, l] for l in 1:L)) for t in 1:T, b in 1:B)
-        + sum((ℵbl[t, b] + ℵbr[t, b]) * (-Bℷ["BC"][b]) for t in 1:T, b in 1:B)
-        + sum( ℵ0[t] * (sum(Z[t, l] for l in 1:L) - sum(Y[t, w] for w in 1:W)) for t in 1:T)
-        + sum(ℵdl1[g] * (Gℷ["ZP"][g] - Gℷ["RD"][g] * x[1, g] - Gℷ["SD"][g] * v[1, g]) - ℵdr1[g] * (Gℷ["RU"][g] * Gℷ["ZS"][g] + Gℷ["SU"][g] * u[1, g] + Gℷ["ZP"][g]) for g in 1:G)
-        + sum( ℵdl[t, g] * (-Gℷ["RD"][g] * x[t, g] - Gℷ["SD"][g] * v[t, g]) - ℵdr[t, g] * (Gℷ["RU"][g] * x[t-1, g] + Gℷ["SU"][g] * u[t, g]) for t in 2:T, g in 1:G)
+macro prim_skeleton()
+    return esc(
+        quote 
+            JuMP.@variable(ø, p[t = 1:T, g = 1:G+1])
+            JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # G+1 @ ϱsl
+            JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.)
+            JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.)
+            JuMP.@expression(ø, ϱsl[t = 1:T], sum(ζ[t, :]) - sum(ϖ[t, :]) - sum(ϱ[t, g] for g in 1:G)) # 🍀 ϱ[t, G+1]
+            JuMP.@constraint(ø, Dϱl[t = 1:T], ϱsl[t] >= 0.) # 🍀
+            JuMP.@constraint(ø, Dϱu[t = 1:T], p[t, G+1] - ϱsl[t] >= 0.) # 🍀
+            JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w])
+            JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
+            JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
+            JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G+1], p[t, g] >= PI[g] * x[t, g])
+            JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G+1], PS[g] * x[t, g] >= p[t, g])
+            JuMP.@expression(ø, lscost_2, -ip(CL, ζ))
+            JuMP.@expression(ø, gccost_1, sum(CG[g]   * (p[t, g]   - ϱ[t, g]) for t in 1:T, g in 1:G))
+            JuMP.@expression(ø, gccost_2, sum(CG[G+1] * (p[t, G+1] - ϱsl[t])  for t in 1:T))
+            JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2)) # okay
+        end
     )
 end
 
-function f_slacked_dual()
-    JuMP.@variable(ø, ℵW[t = 1:T, w = 1:W] >= 0.)
-    JuMP.@variable(ø, ℵL[t = 1:T, l = 1:L] >= 0.)
-    JuMP.@variable(ø, ℵdl1[g = 1:G] >= 0.)
-    JuMP.@variable(ø, ℵdl[t = 2:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø, 0. <= ℵdr1[g = 1:G] <= 1.)
-    JuMP.@variable(ø, 0. <= ℵdr[t = 2:T, g = 1:G] <= 1.)
-    JuMP.@variable(ø, ℵPI[t = 1:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø, 0. <= ℵPS[t = 1:T, g = 1:G] <= 1.)
-    JuMP.@variable(ø, 0. <= ℵbl[t = 1:T, b = 1:B] <= 1.)
-    JuMP.@variable(ø, 0. <= ℵbr[t = 1:T, b = 1:B] <= 1.)
-    JuMP.@variable(ø, ℵR[t = 1:T] >= 0.)
-    JuMP.@variable(ø, ℵ0[t = 1:T] >= 0.)
-    JuMP.@constraint(ø,  ϖ[t = 1:T, w = 1:W],  ℵ0[t] + ℵW[t, w] + sum(F[b, Wℷ["n"][w]] * (ℵbl[t, b] - ℵbr[t, b]) for b in 1:B) >= 0.)
-    JuMP.@constraint(ø,  ζ[t = 1:T, l = 1:L], -ℵ0[t] + ℵL[t, l] + sum(F[b, Lℷ["n"][l]] * (ℵbr[t, b] - ℵbl[t, b]) for b in 1:B) >= 0.)
-    JuMP.@constraint(ø,  ρ[t = 1:T, g = 1:G], ℵPS[t, g] - ℵR[t] >= 0.)
-    JuMP.@expression(ø,  pCommon[t = 1:T, g = 1:G], ℵPS[t, g] - ℵPI[t, g] - ℵ0[t] + sum((ℵbr[t, b] - ℵbl[t, b]) * F[b, Gℷ["n"][g]] for b in 1:B))
-    JuMP.@constraint(ø,  pt1[g = 1:G], pCommon[1, g] + ℵdr1[g] - ℵdl1[g] + ℵdl[2, g] - ℵdr[2, g] == 0.)
-    JuMP.@constraint(ø,  prest[t = 2:T-1, g = 1:G], pCommon[t, g] + ℵdr[t, g] - ℵdl[t, g] + ℵdl[t+1, g] - ℵdr[t+1, g] == 0.)
-    JuMP.@constraint(ø,  ptT[g = 1:G], pCommon[T, g] + ℵdr[T, g] - ℵdl[T, g] == 0.)
-    JuMP.@objective(ø, Max, -sum(ℵW[t, w] * Y[t, w] for t in 1:T, w in 1:W) - sum(ℵL[t, l] * Z[t, l] for t in 1:T, l in 1:L)
-        + SRD * sum(ℵR) + sum( ℵPI[t, g] * Gℷ["PI"][g] * x[t, g] - ℵPS[t, g] * Gℷ["PS"][g] * x[t, g]  for t in 1:T, g in 1:G)
-        + sum((ℵbr[t, b] - ℵbl[t, b]) * (sum(F[b, Wℷ["n"][w]] * Y[t, w] for w in 1:W) - sum(F[b, Lℷ["n"][l]] * Z[t, l] for l in 1:L)) for t in 1:T, b in 1:B)
-        + sum((ℵbl[t, b] + ℵbr[t, b]) * (-Bℷ["BC"][b]) for t in 1:T, b in 1:B)
-        + sum( ℵ0[t] * (sum(Z[t, l] for l in 1:L) - sum(Y[t, w] for w in 1:W)) for t in 1:T)
-        + sum(ℵdl1[g] * (Gℷ["ZP"][g] - Gℷ["RD"][g] * x[1, g] - Gℷ["SD"][g] * v[1, g]) - ℵdr1[g] * (Gℷ["RU"][g] * Gℷ["ZS"][g] + Gℷ["SU"][g] * u[1, g] + Gℷ["ZP"][g]) for g in 1:G)
-        + sum( ℵdl[t, g] * (-Gℷ["RD"][g] * x[t, g] - Gℷ["SD"][g] * v[t, g]) - ℵdr[t, g] * (Gℷ["RU"][g] * x[t-1, g] + Gℷ["SU"][g] * u[t, g]) for t in 2:T, g in 1:G)
+macro dual_skeleton()
+    return esc(
+        quote
+            JuMP.@variable(ø, Dϱl[t = 1:T] >= 0.) # 🍀
+            JuMP.@variable(ø, Dϱu[t = 1:T] >= 0.) # 🍀
+            JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
+            JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
+            JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
+            JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G+1] >= 0.)
+            JuMP.@variable(ø, Dps[t = 1:T, g = 1:G+1] >= 0.)
+            JuMP.@expression(ø, pCom[t = 1:T, g = 1:G], CG[g] + Dps[t, g] - Dpi[t, g] - Dvr[t, g])
+            JuMP.@constraint(ø, p1[g = 1:G],            pCom[1, g] == 0.) # 🍀
+            JuMP.@constraint(ø, p2[t = 2:T-1, g = 1:G], pCom[t, g] == 0.) # 🍀
+            JuMP.@constraint(ø, pT[g = 1:G],            pCom[T, g] == 0.) # 🍀
+            JuMP.@expression(ø, pslCom[t = 1:T], CG[G+1] + Dps[t, G+1] - Dpi[t, G+1] - Dϱu[t])
+            JuMP.@constraint(ø, psl1,                   pslCom[1] == 0.)  # 🍀slack
+            JuMP.@constraint(ø, psl2[t = 2:T-1],        pslCom[t] == 0.)  # 🍀slack
+            JuMP.@constraint(ø, pslT,                   pslCom[T] == 0.)  # 🍀slack
+            JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], -CG[g] + Dvr[t, g] + CG[G+1] - (Dϱu[t] - Dϱl[t])  >= 0.)
+            JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] + CG[G+1] - (Dϱu[t] - Dϱl[t])           >= 0.)
+            JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], -CL[t, l] + Dzt[t, l] - CG[G+1] + Dϱu[t] - Dϱl[t] >= 0.)
+            JuMP.@expression(ø, dualobj,
+                -ip(Y, Dvp) - ip(Z, Dzt)
+                + sum((PI[g] * Dpi[t, g] - PS[g] * Dps[t, g]) * x[t, g] for t in 1:T, g in 1:G+1)
+            )
+        end
     )
 end
+
+macro prim_Quad()
+    return esc(
+        quote
+            JuMP.@variable(ø, p[t = 1:T, g = 1:G+1])
+            JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # G+1 @ ϱsl
+            JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.)
+            JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.)
+            JuMP.@variable(ø, pp[t = 1:T, g = 1:G+1]) # 🍟
+            JuMP.@variable(ø, pe[t = 1:T, g = 1:G+1] >= 0.) # 🍟
+            JuMP.@constraint(ø, [t = 1:T, g = 1:G+1], [pp[t, g] + 1, pp[t, g] - 1, 2 * p[t, g]] in JuMP.SecondOrderCone()) # 🍟 okay
+            JuMP.@constraint(ø, De[t = 1:T, g = 1:G+1], pe[t, g] >= (C2[g] * pp[t, g] + C1[g] * p[t, g] + C0[g]) - EM[g] * (1 - x[t, g])) # 🍟
+            JuMP.@expression(ø, ϱsl[t = 1:T], sum(ζ[t, :]) - sum(ϖ[t, :]) - sum(ϱ[t, g] for g in 1:G)) # 🍀 ϱ[t, G+1]
+            JuMP.@constraint(ø, Dϱl[t = 1:T], ϱsl[t] >= 0.) # 🍀
+            JuMP.@constraint(ø, Dϱu[t = 1:T], p[t, G+1] - ϱsl[t] >= 0.) # 🍀
+            JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w])
+            JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
+            JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
+            JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G+1], p[t, g] >= PI[g] * x[t, g])
+            JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G+1], PS[g] * x[t, g] >= p[t, g])
+            JuMP.@expression(ø, lscost_2, -ip(CL, ζ))
+            JuMP.@expression(ø, gccost_1, sum(CG[g]   * (p[t, g]   - ϱ[t, g]) for t in 1:T, g in 1:G))
+            JuMP.@expression(ø, gccost_2, sum(CG[G+1] * (p[t, G+1] - ϱsl[t])  for t in 1:T))
+            JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2) + sum(pe)) # okay
+        end
+    )
+end
+
+macro dual_Quad()
+    return esc(
+        quote
+            JuMP.@variable(ø, 0. <= De[t = 1:T, g = 1:G+1] <= 1.) # 🍟 ub is due to sum(pe)
+            JuMP.@variable(ø, D1[t = 1:T, g = 1:G+1]) # 🍟
+            JuMP.@variable(ø, D2[t = 1:T, g = 1:G+1]) # 🍟
+            JuMP.@variable(ø, D3[t = 1:T, g = 1:G+1]) # 🍟
+            JuMP.@constraint(ø, [t = 1:T, g = 1:G+1], [D1[t, g], D2[t, g], D3[t, g]] in JuMP.SecondOrderCone()) # 🍟
+            JuMP.@variable(ø, Dϱl[t = 1:T] >= 0.) # 🍀
+            JuMP.@variable(ø, Dϱu[t = 1:T] >= 0.) # 🍀
+            JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
+            JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
+            JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
+            JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G+1] >= 0.)
+            JuMP.@variable(ø, Dps[t = 1:T, g = 1:G+1] >= 0.)
+            JuMP.@constraint(ø, pp[t = 1:T, g = 1:G+1], De[t, g] * C2[g] - D1[t, g] - D2[t, g] == 0.) # 🍟
+            JuMP.@expression(ø, pCom[t = 1:T, g = 1:G], De[t, g] * C1[g] - 2 * D3[t, g] + CG[g] + Dps[t, g] - Dpi[t, g] - Dvr[t, g])
+            JuMP.@constraint(ø, p1[g = 1:G],            pCom[1, g] == 0.) # 🍀
+            JuMP.@constraint(ø, p2[t = 2:T-1, g = 1:G], pCom[t, g] == 0.) # 🍀
+            JuMP.@constraint(ø, pT[g = 1:G],            pCom[T, g] == 0.) # 🍀
+            JuMP.@expression(ø, pslCom[t = 1:T], De[t, G+1] * C1[G+1] - 2 * D3[t, G+1] + CG[G+1] + Dps[t, G+1] - Dpi[t, G+1] - Dϱu[t])
+            JuMP.@constraint(ø, psl1,                   pslCom[1] == 0.)  # 🍀slack
+            JuMP.@constraint(ø, psl2[t = 2:T-1],        pslCom[t] == 0.)  # 🍀slack
+            JuMP.@constraint(ø, pslT,                   pslCom[T] == 0.)  # 🍀slack
+            JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], -CG[g] + Dvr[t, g] + CG[G+1] - (Dϱu[t] - Dϱl[t])    >= 0.)
+            JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] + CG[G+1] - (Dϱu[t] - Dϱl[t])             >= 0.)
+            JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], -CL[t, l] + Dzt[t, l] - CG[G+1] + Dϱu[t] - Dϱl[t]   >= 0.)
+            JuMP.@expression(ø, dualobj, sum(D2 .- D1) + sum(De[t, g] * (C0[g] - EM[g] * (1 - x[t, g])) for t in 1:T, g in 1:G+1)
+                -ip(Y, Dvp) - ip(Z, Dzt) 
+                + sum((PI[g] * Dpi[t, g] - PS[g] * Dps[t, g]) * x[t, g] for t in 1:T, g in 1:G+1)
+            )
+        end
+    )
+end
+
+macro prim_QuadBf()
+    return esc(quote
+        JuMP.@variable(ø, p[t = 1:T, g = 1:G+1])
+        JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # G+1 @ ϱsl
+        JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.)
+        JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.)
+        JuMP.@variable(ø, pp[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@variable(ø, pe[t = 1:T, g = 1:G+1] >= 0.) # 🍟
+        JuMP.@constraint(ø, [t = 1:T, g = 1:G+1], [pp[t, g] + 1, pp[t, g] - 1, 2 * p[t, g]] in JuMP.SecondOrderCone()) # 🍟 okay
+        JuMP.@constraint(ø, De[t = 1:T, g = 1:G+1], pe[t, g] >= (C2[g] * pp[t, g] + C1[g] * p[t, g] + C0[g]) - EM[g] * (1 - x[t, g])) # 🍟
+        JuMP.@expression(ø, ϱsl[t = 1:T], sum(ζ[t, :]) - sum(ϖ[t, :]) - sum(ϱ[t, g] for g in 1:G)) # 🍀 ϱ[t, G+1]
+        JuMP.@constraint(ø, Dϱl[t = 1:T], ϱsl[t] >= 0.) # 🍀
+        JuMP.@constraint(ø, Dϱu[t = 1:T], p[t, G+1] - ϱsl[t] >= 0.) # 🍀
+        JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w])
+        JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
+        JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
+        JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G+1], p[t, g] >= PI[g] * x[t, g])
+        JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G+1], PS[g] * x[t, g] >= p[t, g])
+        JuMP.@expression(ø, bf[t = 1:T, b = 1:B],
+            sum(FM[b, NG[g]] * ϱ[t, g] for g in 1:G)
+            + sum(FM[b, NW[w]] * ϖ[t, w] for w in 1:W)
+            - sum(FM[b, NL[l]] * ζ[t, l] for l in 1:L)
+        ) # 🌸
+        JuMP.@constraint(ø, Dbl[t = 1:T, b = 1:B], bf[t, b] >= -BC[b]) # 🌸
+        JuMP.@constraint(ø, Dbr[t = 1:T, b = 1:B], BC[b] >= bf[t, b])  # 🌸
+        JuMP.@expression(ø, lscost_2, -ip(CL, ζ))
+        JuMP.@expression(ø, gccost_1, sum(CG[g]   * (p[t, g]   - ϱ[t, g]) for t in 1:T, g in 1:G))
+        JuMP.@expression(ø, gccost_2, sum(CG[G+1] * (p[t, G+1] - ϱsl[t])  for t in 1:T))
+        JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2) + sum(pe)) # okay
+    end)
+end
+
+macro dual_QuadBf()
+    return esc(quote
+        JuMP.@variable(ø, 0. <= De[t = 1:T, g = 1:G+1] <= 1.) # 🍟 ub is due to sum(pe)
+        JuMP.@variable(ø, D1[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@variable(ø, D2[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@variable(ø, D3[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@constraint(ø, [t = 1:T, g = 1:G+1], [D1[t, g], D2[t, g], D3[t, g]] in JuMP.SecondOrderCone()) # 🍟
+        JuMP.@variable(ø, Dϱl[t = 1:T] >= 0.) # 🍀
+        JuMP.@variable(ø, Dϱu[t = 1:T] >= 0.) # 🍀
+        JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
+        JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
+        JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
+        JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G+1] >= 0.)
+        JuMP.@variable(ø, Dps[t = 1:T, g = 1:G+1] >= 0.)
+        JuMP.@variable(ø, Dbl[t = 1:T, b = 1:B] >= 0.) # 🌸
+        JuMP.@variable(ø, Dbr[t = 1:T, b = 1:B] >= 0.) # 🌸
+        JuMP.@constraint(ø, pp[t = 1:T, g = 1:G+1], De[t, g] * C2[g] - D1[t, g] - D2[t, g] == 0.) # 🍟
+        JuMP.@expression(ø, pCom[t = 1:T, g = 1:G], De[t, g] * C1[g] - 2 * D3[t, g] + CG[g] + Dps[t, g] - Dpi[t, g] - Dvr[t, g])
+        JuMP.@constraint(ø, p1[g = 1:G],            pCom[1, g] == 0.) # 🍀
+        JuMP.@constraint(ø, p2[t = 2:T-1, g = 1:G], pCom[t, g] == 0.) # 🍀
+        JuMP.@constraint(ø, pT[g = 1:G],            pCom[T, g] == 0.) # 🍀
+        JuMP.@expression(ø, pslCom[t = 1:T], De[t, G+1] * C1[G+1] - 2 * D3[t, G+1] + CG[G+1] + Dps[t, G+1] - Dpi[t, G+1] - Dϱu[t])
+        JuMP.@constraint(ø, psl1,                   pslCom[1] == 0.)  # 🍀slack
+        JuMP.@constraint(ø, psl2[t = 2:T-1],        pslCom[t] == 0.)  # 🍀slack
+        JuMP.@constraint(ø, pslT,                   pslCom[T] == 0.)  # 🍀slack
+        JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], -CG[g] + Dvr[t, g] + CG[G+1] - (Dϱu[t] - Dϱl[t]) + sum(FM[b, NG[g]] * (Dbr[t, b] - Dbl[t, b]) for b in 1:B) >= 0.)
+        JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] + CG[G+1] - (Dϱu[t] - Dϱl[t]) + sum(FM[b, NW[w]] * (Dbr[t, b] - Dbl[t, b]) for b in 1:B) >= 0.)
+        JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], -CL[t, l] + Dzt[t, l] - CG[G+1] + Dϱu[t] - Dϱl[t] - sum(FM[b, NL[l]] * (Dbr[t, b] - Dbl[t, b]) for b in 1:B) >= 0.)
+        JuMP.@expression(ø, dualobj, sum(D2 .- D1) + sum(De[t, g] * (C0[g] - EM[g] * (1 - x[t, g])) for t in 1:T, g in 1:G+1)
+            -ip(Y, Dvp) - ip(Z, Dzt) 
+            + sum((PI[g] * Dpi[t, g] - PS[g] * Dps[t, g]) * x[t, g] for t in 1:T, g in 1:G+1)
+            - sum(BC[b] * (Dbl[t, b] + Dbr[t, b]) for t in 1:T, b in 1:B)
+        )
+    end)
+end
+
+macro prim_code()
+    return esc(quote
+        JuMP.@variable(ø, p[t = 1:T, g = 1:G+1])
+        JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # G+1 @ ϱsl
+        JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.)
+        JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.)
+        JuMP.@variable(ø, pp[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@variable(ø, pe[t = 1:T, g = 1:G+1] >= 0.) # 🍟
+        JuMP.@constraint(ø, [t = 1:T, g = 1:G+1], [pp[t, g] + 1, pp[t, g] - 1, 2 * p[t, g]] in JuMP.SecondOrderCone()) # 🍟 okay
+        JuMP.@constraint(ø, De[t = 1:T, g = 1:G+1], pe[t, g] >= (C2[g] * pp[t, g] + C1[g] * p[t, g] + C0[g]) - EM[g] * (1 - x[t, g])) # 🍟
+        JuMP.@expression(ø, ϱsl[t = 1:T], sum(ζ[t, :]) - sum(ϖ[t, :]) - sum(ϱ[t, g] for g in 1:G)) # 🍀 ϱ[t, G+1]
+        JuMP.@constraint(ø, Dϱl[t = 1:T], ϱsl[t] >= 0.) # 🍀
+        JuMP.@constraint(ø, Dϱu[t = 1:T], p[t, G+1] - ϱsl[t] >= 0.) # 🍀
+        JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w])
+        JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
+        JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
+        JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G+1], p[t, g] >= PI[g] * x[t, g])
+        JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G+1], PS[g] * x[t, g] >= p[t, g])
+        JuMP.@constraint(ø, Dd1[g = 1:G+1], p[1, g] - ZP[g] >= -RD[g] * x[1, g] - SD[g] * v[1, g])              # 🧊
+        JuMP.@constraint(ø, Du1[g = 1:G+1], RU[g] * ZS[g] + SU[g] * u[1, g] >= p[1, g] - ZP[g])                 # 🧊
+        JuMP.@constraint(ø, Dd[t = 2:T, g = 1:G+1], p[t, g] - p[t-1, g] >= -RD[g] * x[t, g] - SD[g] * v[t, g])  # 🧊
+        JuMP.@constraint(ø, Du[t = 2:T, g = 1:G+1], RU[g] * x[t-1, g] + SU[g] * u[t, g] >= p[t, g] - p[t-1, g]) # 🧊
+        JuMP.@expression(ø, bf[t = 1:T, b = 1:B],
+            sum(FM[b, NG[g]] * ϱ[t, g] for g in 1:G)
+            + sum(FM[b, NW[w]] * ϖ[t, w] for w in 1:W)
+            - sum(FM[b, NL[l]] * ζ[t, l] for l in 1:L)
+        ) # 🌸
+        JuMP.@constraint(ø, Dbl[t = 1:T, b = 1:B], bf[t, b] >= -BC[b]) # 🌸
+        JuMP.@constraint(ø, Dbr[t = 1:T, b = 1:B], BC[b] >= bf[t, b])  # 🌸
+        JuMP.@expression(ø, lscost_2, -ip(CL, ζ))
+        JuMP.@expression(ø, gccost_1, sum(CG[g]   * (p[t, g]   - ϱ[t, g]) for t in 1:T, g in 1:G))
+        JuMP.@expression(ø, gccost_2, sum(CG[G+1] * (p[t, G+1] - ϱsl[t])  for t in 1:T))
+        JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2) + sum(pe))
+    end)
+end
+
+macro dual_code()
+    return esc(quote
+        JuMP.@variable(ø, 0. <= De[t = 1:T, g = 1:G+1] <= 1.) # 🍟 ub is due to sum(pe)
+        JuMP.@variable(ø, D1[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@variable(ø, D2[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@variable(ø, D3[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@constraint(ø, [t = 1:T, g = 1:G+1], [D1[t, g], D2[t, g], D3[t, g]] in JuMP.SecondOrderCone()) # 🍟
+        JuMP.@variable(ø, Dϱl[t = 1:T] >= 0.) # 🍀
+        JuMP.@variable(ø, Dϱu[t = 1:T] >= 0.) # 🍀
+        JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
+        JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
+        JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
+        JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G+1] >= 0.)
+        JuMP.@variable(ø, Dps[t = 1:T, g = 1:G+1] >= 0.)
+        JuMP.@variable(ø, Dd1[g = 1:G+1] >= 0.)         # 🧊
+        JuMP.@variable(ø, Du1[g = 1:G+1] >= 0.)         # 🧊
+        JuMP.@variable(ø, Dd[t = 2:T, g = 1:G+1] >= 0.) # 🧊        
+        JuMP.@variable(ø, Du[t = 2:T, g = 1:G+1] >= 0.) # 🧊        
+        JuMP.@variable(ø, Dbl[t = 1:T, b = 1:B] >= 0.) # 🌸
+        JuMP.@variable(ø, Dbr[t = 1:T, b = 1:B] >= 0.) # 🌸
+        JuMP.@constraint(ø, pp[t = 1:T, g = 1:G+1], De[t, g] * C2[g] - D1[t, g] - D2[t, g] == 0.) # 🍟
+        JuMP.@expression(ø, pCom[t = 1:T, g = 1:G], De[t, g] * C1[g] - 2 * D3[t, g] + CG[g] + Dps[t, g] - Dpi[t, g] - Dvr[t, g])
+        JuMP.@constraint(ø, p1[g = 1:G], pCom[1, g] + Du1[g] - Dd1[g] + Dd[1+1, g] - Du[1+1, g] == 0.) # 🍀
+        JuMP.@constraint(ø, p2[t = 2:T-1, g = 1:G], pCom[t, g] + Du[t, g] - Dd[t, g] + Dd[t+1, g] - Du[t+1, g] == 0.) # 🍀
+        JuMP.@constraint(ø, pT[g = 1:G], pCom[T, g] + Du[T, g] - Dd[T, g] == 0.) # 🍀
+        JuMP.@expression(ø, pslCom[t = 1:T], De[t, G+1] * C1[G+1] - 2 * D3[t, G+1] + CG[G+1] + Dps[t, G+1] - Dpi[t, G+1] - Dϱu[t])
+        JuMP.@constraint(ø, psl1, pslCom[1] + Du1[G+1] - Dd1[G+1] + Dd[1+1, G+1] - Du[1+1, G+1] == 0.) # 🍀slack
+        JuMP.@constraint(ø, psl2[t = 2:T-1], pslCom[t] + Du[t, G+1] - Dd[t, G+1] + Dd[t+1, G+1] - Du[t+1, G+1] == 0.) # 🍀slack
+        JuMP.@constraint(ø, pslT, pslCom[T] + Du[T, G+1] - Dd[T, G+1] == 0.) # 🍀slack
+        JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], -CG[g] + Dvr[t, g] + CG[G+1] - (Dϱu[t] - Dϱl[t]) + sum(FM[b, NG[g]] * (Dbr[t, b] - Dbl[t, b]) for b in 1:B) >= 0.)
+        JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] + CG[G+1] - (Dϱu[t] - Dϱl[t]) + sum(FM[b, NW[w]] * (Dbr[t, b] - Dbl[t, b]) for b in 1:B) >= 0.)
+        JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], -CL[t, l] + Dzt[t, l] - CG[G+1] + Dϱu[t] - Dϱl[t] - sum(FM[b, NL[l]] * (Dbr[t, b] - Dbl[t, b]) for b in 1:B) >= 0.)
+        JuMP.@expression(ø, dualobj, sum(D2 .- D1) + sum(De[t, g] * (C0[g] - EM[g] * (1 - x[t, g])) for t in 1:T, g in 1:G+1)
+            -ip(Y, Dvp) - ip(Z, Dzt) + ip(Dd1 .- Du1, ZP)
+            + sum((PI[g] * Dpi[t, g] - PS[g] * Dps[t, g]) * x[t, g] for t in 1:T, g in 1:G+1)
+            - sum(BC[b] * (Dbl[t, b] + Dbr[t, b]) for t in 1:T, b in 1:B)
+            - ip(Du1, RU .* ZS) - sum(Du[t, g] * RU[g] * x[t-1, g] for t in 2:T, g in 1:G+1)
+            - sum((Du1[g] * u[1, g] + sum(Du[t, g] * u[t, g] for t in 2:T)) * SU[g] for g in 1:G+1)
+            - sum((Dd1[g] * v[1, g] + sum(Dd[t, g] * v[t, g] for t in 2:T)) * SD[g] for g in 1:G+1)
+            - sum((Dd1[g] * x[1, g] + sum(Dd[t, g] * x[t, g] for t in 2:T)) * RD[g] for g in 1:G+1)
+        )
+    end)
+end
+
