@@ -33,6 +33,18 @@ function outer2()
     println(a)
 end
 
+# 🧪 How to reuse the argument variable
+function a(b)    
+    b[1] = 4 # points to the outer variable                                                                                                                                                              
+    println(b)                                                                                      
+    b = [5] # REUSE of argument variable, shadowing the original argument variable                                                                                                                                                            
+    println(b) 
+    b[1] = 6 # This time it does NOT point to the outer variable
+    println(b)                                                                                      
+end
+b = [3]
+a(b)  
+@assert b == [4]
 
 
 
