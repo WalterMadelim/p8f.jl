@@ -46,6 +46,7 @@ end
 T, G, W, L, B = 4, 2, 2, 3, 11 # 🌸 G+1 is the size of (u, v, x)
 function load_UC_data(T)
     @assert T in 1:8
+    UT = DT = 3
     CST = [0.72, 0.60, 0.63]/5;
     CSH = [0.15, 0.15, 0.15]/5;
     CL = [8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 16.0 13.776 14.443]/5;
@@ -68,9 +69,9 @@ function load_UC_data(T)
     end
     BC = 2.1 * [1.0043, 2.191, 1.3047, 0.6604, 1.7162, 0.6789, 1.0538, 1.1525, 1.3338, 0.4969, 0.7816]
     (RU = [2.5, 1.9, 2.3]; SU = 1.3 * RU; RD = 1.1 * RU; SD = 1.3 * RD)
-    return CST, CSH, CL, CG, C2, C1, C0, EM, PI, PS, LM, ZS, ZP, NG, NW, NL, FM, BC, RU, SU, RD, SD
+    return CST, CSH, CL, CG, C2, C1, C0, EM, PI, PS, LM, ZS, ZP, NG, NW, NL, FM, BC, RU, SU, RD, SD, UT, DT
 end
-CST, CSH, CL, CG, C2, C1, C0, EM, PI, PS, LM, ZS, ZP, NG, NW, NL, FM, BC, RU, SU, RD, SD = load_UC_data(T)
+CST, CSH, CL, CG, C2, C1, C0, EM, PI, PS, LM, ZS, ZP, NG, NW, NL, FM, BC, RU, SU, RD, SD, UT, DT = load_UC_data(T)
 ℶ1, ℶ2, Δ2, ℸ1, ℸ2 = let
     ℸ1 = Dict( # store solutions of lag_subproblem
         "oψ" => Float64[], # trial value
@@ -127,64 +128,101 @@ begin # load Y and Z's uncertainty data
     end
     rdYZ() = vertexY(rand(1:size(yM, 3))), rdZ() # used in deterministic formulation
 end
+
 macro primobj_code() #  entail (u, v, x, Y, Z)
     return esc(quote
     JuMP.@variable(ø, p[t = 1:T, g = 1:G+1])
-    JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # G+1 @ ϱsl
-    JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.)
-    JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.)
-    JuMP.@expression(ø, ϱsl[t = 1:T], sum(ζ[t, :]) - sum(ϖ[t, :]) - sum(ϱ[t, g] for g in 1:G)) # 🍀 ϱ[t, G+1]
-    JuMP.@constraint(ø, Dϱl[t = 1:T], ϱsl[t] >= 0.) # 🍀
-    JuMP.@constraint(ø, Dϱu[t = 1:T], p[t, G+1] - ϱsl[t] >= 0.) # 🍀
-    JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w])
-    JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
-    JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
-    JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G+1], p[t, g] >= PI[g] * x[t, g])
-    JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G+1], PS[g] * x[t, g] >= p[t, g])
-    JuMP.@expression(ø, lscost_2, -ip(CL, ζ))
-    JuMP.@expression(ø, gccost_1, sum(CG[g]   * (p[t, g]   - ϱ[t, g]) for t in 1:T, g in 1:G))
-    JuMP.@expression(ø, gccost_2, sum(CG[G+1] * (p[t, G+1] - ϱsl[t])  for t in 1:T))
-    JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2))
+        JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G] >= 0.) # G+1 @ ϱsl
+        JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.)
+        JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.)
+        JuMP.@variable(ø, pp[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@variable(ø, pe[t = 1:T, g = 1:G+1] >= 0.) # 🍟
+        JuMP.@constraint(ø, [t = 1:T, g = 1:G+1], [pp[t, g] + 1, pp[t, g] - 1, 2 * p[t, g]] in JuMP.SecondOrderCone()) # 🍟 okay
+        JuMP.@constraint(ø, De[t = 1:T, g = 1:G+1], pe[t, g] >= (C2[g] * pp[t, g] + C1[g] * p[t, g] + C0[g]) - EM[g] * (1 - x[t, g])) # 🍟
+        JuMP.@expression(ø, ϱsl[t = 1:T], sum(ζ[t, :]) - sum(ϖ[t, :]) - sum(ϱ[t, g] for g in 1:G)) # 🍀 ϱ[t, G+1]
+        JuMP.@constraint(ø, Dϱl[t = 1:T], ϱsl[t] >= 0.) # 🍀
+        JuMP.@constraint(ø, Dϱu[t = 1:T], p[t, G+1] - ϱsl[t] >= 0.) # 🍀
+        JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w])
+        JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
+        JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G], p[t, g] >= ϱ[t, g])
+        JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G+1], p[t, g] >= PI[g] * x[t, g])
+        JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G+1], PS[g] * x[t, g] >= p[t, g])
+        JuMP.@constraint(ø, Dd1[g = 1:G+1], p[1, g] - ZP[g] >= -RD[g] * x[1, g] - SD[g] * v[1, g])              # 🧊
+        JuMP.@constraint(ø, Du1[g = 1:G+1], RU[g] * ZS[g] + SU[g] * u[1, g] >= p[1, g] - ZP[g])                 # 🧊
+        JuMP.@constraint(ø, Dd[t = 2:T, g = 1:G+1], p[t, g] - p[t-1, g] >= -RD[g] * x[t, g] - SD[g] * v[t, g])  # 🧊
+        JuMP.@constraint(ø, Du[t = 2:T, g = 1:G+1], RU[g] * x[t-1, g] + SU[g] * u[t, g] >= p[t, g] - p[t-1, g]) # 🧊
+        JuMP.@expression(ø, bf[t = 1:T, b = 1:B],
+            sum(FM[b, NG[g]] * ϱ[t, g] for g in 1:G)
+            + sum(FM[b, NW[w]] * ϖ[t, w] for w in 1:W)
+            - sum(FM[b, NL[l]] * ζ[t, l] for l in 1:L)
+        ) # 🌸
+        JuMP.@constraint(ø, Dbl[t = 1:T, b = 1:B], bf[t, b] >= -BC[b]) # 🌸
+        JuMP.@constraint(ø, Dbr[t = 1:T, b = 1:B], BC[b] >= bf[t, b])  # 🌸
+        JuMP.@expression(ø, lscost_2, -ip(CL, ζ))
+        JuMP.@expression(ø, gccost_1, sum(CG[g]   * (p[t, g]   - ϱ[t, g]) for t in 1:T, g in 1:G))
+        JuMP.@expression(ø, gccost_2, sum(CG[G+1] * (p[t, G+1] - ϱsl[t])  for t in 1:T))
+        JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2) + sum(pe))
     end)
 end
 macro dualobj_code() #  entail (u, v, x, Y, Z)
     return esc(quote
-    JuMP.@variable(ø, Dϱl[t = 1:T] >= 0.) # 🍀
-    JuMP.@variable(ø, Dϱu[t = 1:T] >= 0.) # 🍀
-    JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
-    JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
-    JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
-    JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G+1] >= 0.)
-    JuMP.@variable(ø, Dps[t = 1:T, g = 1:G+1] >= 0.)
-    JuMP.@expression(ø, pCom[t = 1:T, g = 1:G], CG[g] + Dps[t, g] - Dpi[t, g] - Dvr[t, g])
-    JuMP.@constraint(ø, p1[g = 1:G],            pCom[1, g] == 0.) # 🍀
-    JuMP.@constraint(ø, p2[t = 2:T-1, g = 1:G], pCom[t, g] == 0.) # 🍀
-    JuMP.@constraint(ø, pT[g = 1:G],            pCom[T, g] == 0.) # 🍀
-    JuMP.@expression(ø, pslCom[t = 1:T], CG[G+1] + Dps[t, G+1] - Dpi[t, G+1] - Dϱu[t])
-    JuMP.@constraint(ø, psl1,                   pslCom[1] == 0.)  # 🍀slack
-    JuMP.@constraint(ø, psl2[t = 2:T-1],        pslCom[t] == 0.)  # 🍀slack
-    JuMP.@constraint(ø, pslT,                   pslCom[T] == 0.)  # 🍀slack
-    JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], -CG[g] + Dvr[t, g] + CG[G+1] - (Dϱu[t] - Dϱl[t])  >= 0.)
-    JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] + CG[G+1] - (Dϱu[t] - Dϱl[t])           >= 0.)
-    JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], -CL[t, l] + Dzt[t, l] - CG[G+1] + Dϱu[t] - Dϱl[t] >= 0.)
-    JuMP.@expression(ø, dualobj,
-        -ip(Y, Dvp) - ip(Z, Dzt)
-        + sum((PI[g] * Dpi[t, g] - PS[g] * Dps[t, g]) * x[t, g] for t in 1:T, g in 1:G+1)
-    )
+    JuMP.@variable(ø, 0. <= De[t = 1:T, g = 1:G+1] <= 1.) # 🍟 ub is due to sum(pe)
+        JuMP.@variable(ø, D1[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@variable(ø, D2[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@variable(ø, D3[t = 1:T, g = 1:G+1]) # 🍟
+        JuMP.@constraint(ø, [t = 1:T, g = 1:G+1], [D1[t, g], D2[t, g], D3[t, g]] in JuMP.SecondOrderCone()) # 🍟
+        JuMP.@variable(ø, Dϱl[t = 1:T] >= 0.) # 🍀
+        JuMP.@variable(ø, Dϱu[t = 1:T] >= 0.) # 🍀
+        JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
+        JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
+        JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G] >= 0.)
+        JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G+1] >= 0.)
+        JuMP.@variable(ø, Dps[t = 1:T, g = 1:G+1] >= 0.)
+        JuMP.@variable(ø, Dd1[g = 1:G+1] >= 0.)         # 🧊
+        JuMP.@variable(ø, Du1[g = 1:G+1] >= 0.)         # 🧊
+        JuMP.@variable(ø, Dd[t = 2:T, g = 1:G+1] >= 0.) # 🧊        
+        JuMP.@variable(ø, Du[t = 2:T, g = 1:G+1] >= 0.) # 🧊        
+        JuMP.@variable(ø, Dbl[t = 1:T, b = 1:B] >= 0.) # 🌸
+        JuMP.@variable(ø, Dbr[t = 1:T, b = 1:B] >= 0.) # 🌸
+        JuMP.@constraint(ø, pp[t = 1:T, g = 1:G+1], De[t, g] * C2[g] - D1[t, g] - D2[t, g] == 0.) # 🍟
+        JuMP.@expression(ø, pCom[t = 1:T, g = 1:G], De[t, g] * C1[g] - 2 * D3[t, g] + CG[g] + Dps[t, g] - Dpi[t, g] - Dvr[t, g])
+        JuMP.@constraint(ø, p1[g = 1:G], pCom[1, g] + Du1[g] - Dd1[g] + Dd[1+1, g] - Du[1+1, g] == 0.) # 🍀
+        JuMP.@constraint(ø, p2[t = 2:T-1, g = 1:G], pCom[t, g] + Du[t, g] - Dd[t, g] + Dd[t+1, g] - Du[t+1, g] == 0.) # 🍀
+        JuMP.@constraint(ø, pT[g = 1:G], pCom[T, g] + Du[T, g] - Dd[T, g] == 0.) # 🍀
+        JuMP.@expression(ø, pslCom[t = 1:T], De[t, G+1] * C1[G+1] - 2 * D3[t, G+1] + CG[G+1] + Dps[t, G+1] - Dpi[t, G+1] - Dϱu[t])
+        JuMP.@constraint(ø, psl1, pslCom[1] + Du1[G+1] - Dd1[G+1] + Dd[1+1, G+1] - Du[1+1, G+1] == 0.) # 🍀slack
+        JuMP.@constraint(ø, psl2[t = 2:T-1], pslCom[t] + Du[t, G+1] - Dd[t, G+1] + Dd[t+1, G+1] - Du[t+1, G+1] == 0.) # 🍀slack
+        JuMP.@constraint(ø, pslT, pslCom[T] + Du[T, G+1] - Dd[T, G+1] == 0.) # 🍀slack
+        JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G], -CG[g] + Dvr[t, g] + CG[G+1] - (Dϱu[t] - Dϱl[t]) + sum(FM[b, NG[g]] * (Dbr[t, b] - Dbl[t, b]) for b in 1:B) >= 0.)
+        JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] + CG[G+1] - (Dϱu[t] - Dϱl[t]) + sum(FM[b, NW[w]] * (Dbr[t, b] - Dbl[t, b]) for b in 1:B) >= 0.)
+        JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], -CL[t, l] + Dzt[t, l] - CG[G+1] + Dϱu[t] - Dϱl[t] - sum(FM[b, NL[l]] * (Dbr[t, b] - Dbl[t, b]) for b in 1:B) >= 0.)
+        JuMP.@expression(ø, dualobj, sum(D2 .- D1) + sum(De[t, g] * (C0[g] - EM[g] * (1 - x[t, g])) for t in 1:T, g in 1:G+1)
+            -ip(Y, Dvp) - ip(Z, Dzt) + ip(Dd1 .- Du1, ZP)
+            + sum((PI[g] * Dpi[t, g] - PS[g] * Dps[t, g]) * x[t, g] for t in 1:T, g in 1:G+1)
+            - sum(BC[b] * (Dbl[t, b] + Dbr[t, b]) for t in 1:T, b in 1:B)
+            - ip(Du1, RU .* ZS) - sum(Du[t, g] * RU[g] * x[t-1, g] for t in 2:T, g in 1:G+1)
+            - sum((Du1[g] * u[1, g] + sum(Du[t, g] * u[t, g] for t in 2:T)) * SU[g] for g in 1:G+1)
+            - sum((Dd1[g] * v[1, g] + sum(Dd[t, g] * v[t, g] for t in 2:T)) * SD[g] for g in 1:G+1)
+            - sum((Dd1[g] * x[1, g] + sum(Dd[t, g] * x[t, g] for t in 2:T)) * RD[g] for g in 1:G+1)
+        )
     end)
 end
+
 macro stage1feas_code()
     return esc(quote
         JuMP.@variable(ø, u[t = 1:T, g = 1:G+1], Bin)
         JuMP.@variable(ø, v[t = 1:T, g = 1:G+1], Bin)
-        JuMP.@constraint(ø, u + v .<= 1) # 💥💥 safe constraint
         JuMP.@variable(ø, x[t = 1:T, g = 1:G+1], Bin)
         JuMP.@expression(ø, xm1, vcat(transpose(ZS), x)[1:end-1, :])
         JuMP.@constraint(ø, x .- xm1 .== u .- v)
+        JuMP.@constraint(ø, [g = 1:G+1, t = 1:T-UT+1], sum(x[i, g] for i in t:t+UT-1) >= UT * u[t, g])
+        JuMP.@constraint(ø, [g = 1:G+1, t = T-UT+1:T], sum(x[i, g] - u[t, g] for i in t:T) >= 0)
+        JuMP.@constraint(ø, [g = 1:G+1, t = 1:T-DT+1], sum(1 - x[i, g] for i in t:t+DT-1) >= DT * v[t, g])
+        JuMP.@constraint(ø, [g = 1:G+1, t = T-DT+1:T], sum(1 - x[i, g] - v[t, g] for i in t:T) >= 0)
+        # JuMP.@constraint(ø, u + v .<= 1) # 💥 become dispensable when UTDT are present
     end)
 end
-macro addMatVarViaCopy(x, xΓ) return esc(:( JuMP.@variable(ø, $x[eachindex(eachrow($xΓ)), eachindex(eachcol($xΓ))]) )) end
-# macro addMatCopyConstr(cpx, x, xΓ) return esc(:( JuMP.@constraint(ø, $cpx[i = eachindex(eachrow($x)), j = eachindex(eachcol($x))], $x[i, j] == $xΓ[i, j]) )) end
+macro addMatVarViaCopy(x, xΓ) return esc(:( JuMP.@variable(ø, $x[eachindex(eachrow($xΓ)), eachindex(eachcol($xΓ))]) )) end # macro addMatCopyConstr(cpx, x, xΓ) return esc(:( JuMP.@constraint(ø, $cpx[i = eachindex(eachrow($x)), j = eachindex(eachcol($x))], $x[i, j] == $xΓ[i, j]) )) end
 function decode_uv_from_x(x::BitMatrix)
     xm1 = vcat(transpose(ZS), x)[1:end-1, :]
     dif = Int.(x .- xm1)
@@ -389,12 +427,12 @@ function ψ_argmaxppo_master(oψ, u, v, x) #  🫖 arg is a trial point
     @assert status == JuMP.OPTIMAL
     po = JuMP.value(po)
     @assert po > ϵ/2 "Gurobi's err"
-    dualBnd = R2 == 0 ? Inf : JuMP.objective_value(ø)
+    o1 = R2 == 0 ? Inf : JuMP.value(o1)
     primVal_2 = JuMP.value(o2) + JuMP.value(o3)
     pu = jv(pu)
     pv = jv(pv)
     px = jv(px)
-    return dualBnd, primVal_2, po, pu, pv, px
+    return o1, primVal_2, po, pu, pv, px
 end
 function ψ_try_gen_vio_lag_cut(yM, iY, oψΓ, uΓ, vΓ, xΓ) # 🥑
     function pushTrial(oψ, u, v, x)
@@ -408,13 +446,14 @@ function ψ_try_gen_vio_lag_cut(yM, iY, oψΓ, uΓ, vΓ, xΓ) # 🥑
         cn = ψ_lag_subproblem(yM, iY, 1., zero(uΓ), zero(vΓ), zero(xΓ))[1] 
         return cn, 1., zero(uΓ), zero(vΓ), zero(xΓ) # generate a horizontal cut, although cn might be -Inf
     end
-    PATIENCE = 0.01
+    PATIENCE = 0.9
     while true
-        dualBnd, primVal_2, po, pu, pv, px = ψ_argmaxppo_master(oψΓ, uΓ, vΓ, xΓ)
+        o1, primVal_2, po, pu, pv, px = ψ_argmaxppo_master(oψΓ, uΓ, vΓ, xΓ)
+        dualBnd = o1 + primVal_2
         dualBnd < cϵ && return -Inf, 1., zero(uΓ), zero(vΓ), zero(xΓ)
         cn, (oψ, u, v, x) = ψ_lag_subproblem(yM, iY, po, pu, pv, px)
+        cn > o1 + 5e-5 && @warn "ψ_try_gen_vio_lag_cut cn=$cn | $o1=o1"
         primVal = cn + primVal_2
-        @assert primVal <= dualBnd + 5e-5 "weak dual error: pV=$primVal | $dualBnd=dB"
         primVal > PATIENCE * dualBnd && return cn, po, pu, pv, px
         pushTrial(oψ, u, v, x)
     end
@@ -532,13 +571,13 @@ function argmaxppo_master(ofv, u, v, x, Y) # 🫖 arg is a trial point
     @assert status == JuMP.OPTIMAL
     po = JuMP.value(po)
     @assert po > ϵ/2 "Gurobi's err"
-    dualBnd = vldt ? JuMP.objective_value(ø) : Inf
+    o1 = R2 == 0 ? Inf : JuMP.value(o1)
     primVal_2 = JuMP.value(o2) + JuMP.value(o3)
     pu = jv(pu)
     pv = jv(pv)
     px = jv(px)
     pY = jv(pY)
-    return dualBnd, primVal_2, po, pu, pv, px, pY
+    return o1, primVal_2, po, pu, pv, px, pY
 end
 function try_gen_vio_lag_cut(yM, Z, ofvΓ, uΓ, vΓ, xΓ, YΓ) # 🥑 use suffix "Γ" to avoid clash
     function pushTrial(ofv, u, v, x, Y)
@@ -553,13 +592,14 @@ function try_gen_vio_lag_cut(yM, Z, ofvΓ, uΓ, vΓ, xΓ, YΓ) # 🥑 use suffix
         cn = lag_subproblem(yM, Z, 1., zero(uΓ), zero(vΓ), zero(xΓ), zero(YΓ))[1]
         return cn, 1., zero(uΓ), zero(vΓ), zero(xΓ), zero(YΓ)
     end
-    PATIENCE = 0.01
+    PATIENCE = 0.9
     while true
-        dualBnd, primVal_2, po, pu, pv, px, pY = argmaxppo_master(ofvΓ, uΓ, vΓ, xΓ, YΓ)
+        o1, primVal_2, po, pu, pv, px, pY = argmaxppo_master(ofvΓ, uΓ, vΓ, xΓ, YΓ) # trial slope <-- hat points
+        dualBnd = o1 + primVal_2
         dualBnd < cϵ && return -Inf, 1., zero(uΓ), zero(vΓ), zero(xΓ), zero(YΓ)
-        cn, (ofv, u, v, x, Y) = lag_subproblem(yM, Z, po, pu, pv, px, pY)
+        cn, (ofv, u, v, x, Y) = lag_subproblem(yM, Z, po, pu, pv, px, pY) # trial cut generation
+        cn > o1 + 5e-5 && @warn "final try_gen_vio_lag_cut cn=$cn | $o1=o1"
         primVal = cn + primVal_2
-        @assert primVal <= dualBnd + 5e-5 "weak dual error: pV=$primVal | $dualBnd=dB"
         primVal > PATIENCE * dualBnd && return cn, po, pu, pv, px, pY
         pushTrial(ofv, u, v, x, Y)
     end
@@ -649,7 +689,8 @@ Z = argmaxZ(x, yM, iY, β2)
 gCnt = [0]
 termination_flag = falses(1)
 lbV = [-Inf] # to draw pictures
-xV, β1V, oℶ1V = [x], [β1], [oℶ1]
+ubV = [Inf]
+xV, β1V, oℶ1V = [x, x], [β1, β1], [oℶ1]
 iYV = [iY]
 β2V, oℶ2V = [β2], [oℶ2]
 ZV = [Z]
@@ -677,8 +718,16 @@ function ybo2(yM)
     x, β1 = xV[1], β1V[1] 
     iYV[1] = iY = argmaxindY(Δ2, x, β1, yM)
     if from_t1V[1] # 💻 concluding session
-        lb, ub = lbV[end], c1p2V[1] + ub_φ1(Δ2, x, β1, yM, iY)
-        @assert lb <= ub + 1e-6
+        oℶ1 = oℶ1V[1]
+        oℶ1_ub = ub_φ1(Δ2, x, β1, yM, iY)
+        @assert oℶ1 <= oℶ1_ub + 1e-6
+        cost1plus2 = c1p2V[1]
+        lb = cost1plus2 + oℶ1    # this lb is always better
+        ub = cost1plus2 + oℶ1_ub # this trial upper bound could deteriorate
+        if ub < ubV[1] # 🫖 update candidate solution
+            xV[2], β1V[2], ubV[1] = x, β1, ub
+        end
+        ub = ubV[1]
         gap = gap_lu(lb, ub)
         lb, ub = rd6(lb), rd6(ub)
         str = "t1:[g$(gCnt[1])]($(vldtV[1]))lb $lb | $ub ub, gap $gap"
@@ -736,13 +785,6 @@ end
 
 @time main(yM, true)
 @time main(yM)
-
-# [ Info: t1:[g579](true)lb 0.563885 | 0.568506 ub, gap 0.008129847226847765
-# ┌ Warning: t3: ℶ2 saturation
-# └ @ Main REPL[226]:5
-# [ Info: t1:[g580](true)lb 0.563929 | 0.567745 ub, gap 0.006722378441590632
-# [ Info:  😊 gap < 8/1000, thus terminate at next t3
-# 436.851343 seconds (641.21 M allocations: 47.587 GiB, 1.05% gc time, 0.01% compilation time)
 
 popfirst!(lbV)
 using CairoMakie
