@@ -1,4 +1,4 @@
-
+# These 4 dual formulas has been verified to be correct 4/12/24
 macro prim_skeleton()
     return esc(
         quote 
@@ -17,11 +17,10 @@ macro prim_skeleton()
             JuMP.@expression(ø, lscost_2, -ip(CL, ζ))
             JuMP.@expression(ø, gccost_1, sum(CG[g]   * (p[t, g]   - ϱ[t, g]) for t in 1:T, g in 1:G))
             JuMP.@expression(ø, gccost_2, sum(CG[G+1] * (p[t, G+1] - ϱsl[t])  for t in 1:T))
-            JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2)) # okay
+            JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2))
         end
     )
 end
-
 macro dual_skeleton()
     return esc(
         quote
@@ -50,7 +49,6 @@ macro dual_skeleton()
         end
     )
 end
-
 macro prim_Quad()
     return esc(
         quote
@@ -73,11 +71,10 @@ macro prim_Quad()
             JuMP.@expression(ø, lscost_2, -ip(CL, ζ))
             JuMP.@expression(ø, gccost_1, sum(CG[g]   * (p[t, g]   - ϱ[t, g]) for t in 1:T, g in 1:G))
             JuMP.@expression(ø, gccost_2, sum(CG[G+1] * (p[t, G+1] - ϱsl[t])  for t in 1:T))
-            JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2) + sum(pe)) # okay
+            JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2) + sum(pe))
         end
     )
 end
-
 macro dual_Quad()
     return esc(
         quote
@@ -112,7 +109,6 @@ macro dual_Quad()
         end
     )
 end
-
 macro prim_QuadBf()
     return esc(quote
         JuMP.@variable(ø, p[t = 1:T, g = 1:G+1])
@@ -144,7 +140,6 @@ macro prim_QuadBf()
         JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2) + sum(pe)) # okay
     end)
 end
-
 macro dual_QuadBf()
     return esc(quote
         JuMP.@variable(ø, 0. <= De[t = 1:T, g = 1:G+1] <= 1.) # 🍟 ub is due to sum(pe)
@@ -180,7 +175,6 @@ macro dual_QuadBf()
         )
     end)
 end
-
 macro prim_code()
     return esc(quote
         JuMP.@variable(ø, p[t = 1:T, g = 1:G+1])
@@ -216,7 +210,6 @@ macro prim_code()
         JuMP.@expression(ø, primobj, lscost_2 + (gccost_1 + gccost_2) + sum(pe))
     end)
 end
-
 macro dual_code()
     return esc(quote
         JuMP.@variable(ø, 0. <= De[t = 1:T, g = 1:G+1] <= 1.) # 🍟 ub is due to sum(pe)
@@ -260,4 +253,3 @@ macro dual_code()
         )
     end)
 end
-
