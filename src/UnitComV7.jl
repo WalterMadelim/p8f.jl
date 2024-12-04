@@ -9,10 +9,10 @@ using Logging
 GRB_ENV = Gurobi.Env()
 
 # with only lagrangian cuts
-# TODO switch between stages heuristically
 # relatively complete recourse -> dual variable has an upper bound -> estimate it -> enforce beta_bound
-# although might not be very fast, the lb increasing process is steady and continual ✅
-# 3/12/24
+# the lb increasing process is steady and continual ✅
+# converge to gap < 8/1000 after 700 to 800 seconds
+# 4/12/24
 
 macro optimise() return esc(:((_, status) = (JuMP.optimize!(ø), JuMP.termination_status(ø)))) end
 macro reoptimise()
@@ -230,9 +230,6 @@ function decode_uv_from_x(x::BitMatrix)
     v = dif .== -1
     return u, v
 end
-function decode_uv_from_x(x::Matrix)
-    return u, v = decode_uv_from_x(Bool.(x))
-end
 function dualobj_value(u, v, x, Y, Z) # Inner layer
     ø = JumpModel(0)
     @dualobj_code()
@@ -256,8 +253,7 @@ end
 function primobj_value(x, yM, i, Z)
     u, v = decode_uv_from_x(x)
     return value = primobj_value(u, v, x, yM[:, :, i], Z) 
-end
-# 🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄
+end# 🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄 🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄
 function master() # initialization version ⚠️ will be executed more than once
     ø = JumpModel(0)
     @stage1feas_code()
@@ -276,11 +272,11 @@ function master(ℶ1) # portal
     end
     R2, stV2, cnV2, puV2, pvV2, pxV2, pβ1V2 = readCut(ℶ1)
     if R2 >= 1
-        return vldt, lb, x, β1, cost1plus2, oℶ1 = master(R2, stV2, cnV2, puV2, pvV2, pxV2, pβ1V2)
+        return vldt, x, β1, cost1plus2, oℶ1 = master(R2, stV2, cnV2, puV2, pvV2, pxV2, pβ1V2)
     else # This part is necessary, because it will be executed more than once
         x, β1 = master()
-        (vldt = false; lb = oℶ1 = -Inf; cost1plus2 = Inf)
-        return vldt, lb, x, β1, cost1plus2, oℶ1
+        (vldt = false; oℶ1 = -Inf; cost1plus2 = 0.) # cost1plus2 is a finite value
+        return vldt, x, β1, cost1plus2, oℶ1
     end
 end
 function master(R2, stV2, cnV2, puV2, pvV2, pxV2, pβ1V2) # if o3 has ≥1 cut
@@ -310,40 +306,9 @@ function master(R2, stV2, cnV2, puV2, pvV2, pxV2, pβ1V2) # if o3 has ≥1 cut
     else
         vldt = true
     end
-    lb = JuMP.objective_value(ø)
     x, β1 = get_bin_var(x), jv(β1)
     cost1plus2, oℶ1 = JuMP.value(o1) + JuMP.value(o2), JuMP.value(o3)
-    return vldt, lb, x, β1, cost1plus2, oℶ1
-end
-function ub_psi(Δ2, x::BitMatrix, Y::Int)::Float64 # 
-    i_vec = findall(t -> t == x, Δ2["x"]) ∩ findall(t -> t == Y, Δ2["Y"])
-    isempty(i_vec) && return Inf
-    R2 = length(i_vec)
-    fV2 = Δ2["f"][i_vec] # evaluated at final stage, thus accurate φ2
-    β2V2 = Δ2["β"][i_vec]
-    ø = JumpModel(0)
-    JuMP.@variable(ø, λ[1:R2] >= 0.)
-    JuMP.@constraint(ø, sum(λ) == 1.)
-    JuMP.@variable(ø, β2[eachindex(eachrow(MZ)), eachindex(eachcol(MZ))])
-    JuMP.@constraint(ø, sum(β2V2[r] * λ[r] for r in 1:R2) .== β2)
-    JuMP.@objective(ø, Min, ip(MZ, β2) + ip(fV2, λ))
-    @optimise()
-    if status != JuMP.OPTIMAL
-        @reoptimise()
-        status == JuMP.INFEASIBLE && return Inf
-        error(" in ub_psi(), status = $status ")
-    end
-    return JuMP.objective_value(ø)
-end
-ub_φ1(Δ2, x, β1, yM, i) = -ip(β1, yM[:, :, i]) + ub_psi(Δ2, x, i)
-function argmaxindY(Δ2, x, β1, yM)::Int # 
-    (NY = size(yM, 3); fullVec = zeros(NY))
-    for i in 1:NY
-        v = ub_φ1(Δ2, x, β1, yM, i)
-        v == Inf && return i
-        fullVec[i] = v
-    end
-    return findmax(fullVec)[2]
+    return vldt, x, β1, cost1plus2, oℶ1
 end
 function get_trial_β2_oℶ2(ℶ2, x, yM, iY) #  invoke next to argmaxY
     function readCut(ℶ)
@@ -376,6 +341,50 @@ function get_trial_β2_oℶ2(ℶ2, x, yM, iY) #  invoke next to argmaxY
     β2 = jv(β2)
     return β2, oℶ2
 end
+ub_φ1(Δ2, x, β1, yM, i) = -ip(β1, yM[:, :, i]) + ub_psi(Δ2, x, i)
+phi_2(β2, x, yM, i, Z)  = -ip(β2, Z)           + f(x, yM, i, Z)
+function f(x, yM, i, Z) # 🧊 dualFormulas inside
+    ofc = ip(CL, Z)
+    ofv = primobj_value(x, yM, i, Z)
+    return of = ofc + ofv # 🧊 if you are not confident about dualFormulas.jl, execute the following line to check up on
+    ofv2 = dualobj_value(x, yM, i, Z)
+    @assert isapprox(ofv, ofv2; rtol = 1e-5) "ofv = $ofv | $ofv2 = ofv2" # to assure the validity of most hazardous Z
+end
+function ub_psi(Δ2, x::BitMatrix, Y::Int)::Float64 # 
+    i_vec = findall(t -> t == x, Δ2["x"]) ∩ findall(t -> t == Y, Δ2["Y"])
+    isempty(i_vec) && return Inf
+    R2 = length(i_vec)
+    fV2 = Δ2["f"][i_vec] # evaluated at final stage, thus accurate φ2
+    β2V2 = Δ2["β"][i_vec]
+    ø = JumpModel(0)
+    JuMP.@variable(ø, λ[1:R2] >= 0.)
+    JuMP.@constraint(ø, sum(λ) == 1.)
+    JuMP.@variable(ø, β2[eachindex(eachrow(MZ)), eachindex(eachcol(MZ))])
+    JuMP.@constraint(ø, sum(β2V2[r] * λ[r] for r in 1:R2) .== β2)
+    JuMP.@objective(ø, Min, ip(MZ, β2) + ip(fV2, λ))
+    @optimise()
+    if status != JuMP.OPTIMAL
+        @reoptimise()
+        status == JuMP.INFEASIBLE && return Inf
+        error(" in ub_psi(), status = $status ")
+    end
+    return JuMP.objective_value(ø)
+end
+function evalPush_Δ2(β2, x, yM, i, Z) # 👍 use this directly
+    push!(Δ2["f"], phi_2(β2, x, yM, i, Z))
+    push!(Δ2["x"], x)
+    push!(Δ2["Y"], i)
+    push!(Δ2["β"], β2)
+end
+function argmaxindY(Δ2, x, β1, yM)::Int # 
+    (NY = size(yM, 3); fullVec = zeros(NY))
+    for i in 1:NY
+        v = ub_φ1(Δ2, x, β1, yM, i)
+        v == Inf && return i
+        fullVec[i] = v
+    end
+    return findmax(fullVec)[2]
+end
 function argmaxZ(u, v, x, Y, β2) # 💻 Feat
     ø = JumpModel(2)
     JuMP.@variable(ø, 0 <= Z[t = 1:T, l = 1:L] <= LM[l])
@@ -388,7 +397,7 @@ end
 function argmaxZ(x, yM, i, β2)::Matrix{Float64}
     u, v = decode_uv_from_x(x)
     return argmaxZ(u, v, x, yM[:, :, i], β2)
-end
+end# 🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄 🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄
 function ψ_argmaxppo_master(oψ, u, v, x) #  🫖 arg is a trial point
     rsp(matrix) = reshape(matrix, (:,))
     function read(ℸ) # for Benders (or SB) cut
@@ -666,23 +675,8 @@ end
 function tryPush_ℶ2(yM, i, Z, oℶ2, x, β2)::Bool # 👍 use this directly
     ofv = oℶ2 + ip(β2, Z) - ip(CL, Z)
     return success_flag = tryPush_ℶ2(yM, i, Z, ofv, x)
-end
-function f(x, yM, i, Z)
-    ofc = ip(CL, Z)
-    ofv = primobj_value(x, yM, i, Z)
-    ofv2 = dualobj_value(x, yM, i, Z)
-    @assert isapprox(ofv, ofv2; rtol = 1e-5) "ofv = $ofv | $ofv2 = ofv2" # to assure the validity of most hazardous Z
-    return of = ofc + ofv
-end
-phi_2(β2, x, yM, i, Z) = -ip(β2, Z) + f(x, yM, i, Z)
-function evalPush_Δ2(β2, x, yM, i, Z) # 👍 use this directly
-    push!(Δ2["f"], phi_2(β2, x, yM, i, Z))
-    push!(Δ2["x"], x)
-    push!(Δ2["Y"], i)
-    push!(Δ2["β"], β2)
-end
-# 🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄
-_, _, x, β1, _, oℶ1 = master(ℶ1)
+end# 🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄 🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄🎄
+_, x, β1, _, oℶ1 = master(ℶ1)
 iY = argmaxindY(Δ2, x, β1, yM)
 β2, oℶ2 = get_trial_β2_oℶ2(ℶ2, x, yM, iY)
 Z = argmaxZ(x, yM, iY, β2)
@@ -699,35 +693,30 @@ c1p2V = [Inf]
 from_t1V = trues(1) # used in t2f
 vldtV = falses(1)
 function xbo1(is_premain::Bool)
-    vldt, lb, x, β1, cost1plus2, oℶ1 = master(ℶ1)
+    vldtV[1], xV[1], β1V[1], c1p2V[1], oℶ1V[1] = vldt, x, β1, cost1plus2, oℶ1 = master(ℶ1)
     if vldt
         @info "▶▶ master's vldt is true"
         return true
     end
-    xV[1], β1V[1], oℶ1V[1], c1p2V[1] = x, β1, oℶ1, cost1plus2
     (from_t1V[1] = true; tV[1] = t2f)
     return false
 end
 function xbo1()
-    vldt, lb, x, β1, cost1plus2, oℶ1 = master(ℶ1)
-    push!(lbV, lb)
-    xV[1], β1V[1], oℶ1V[1], c1p2V[1], vldtV[1] = x, β1, oℶ1, cost1plus2, vldt
+    vldtV[1], xV[1], β1V[1], c1p2V[1], oℶ1V[1] = vldt, x, β1, cost1plus2, oℶ1 = master(ℶ1)
     (from_t1V[1] = true; tV[1] = t2f)
 end
 function ybo2(yM)
     x, β1 = xV[1], β1V[1] 
     iYV[1] = iY = argmaxindY(Δ2, x, β1, yM)
     if from_t1V[1] # 💻 concluding session
-        oℶ1 = oℶ1V[1]
-        oℶ1_ub = ub_φ1(Δ2, x, β1, yM, iY)
+        cost1plus2, oℶ1, oℶ1_ub = c1p2V[1], oℶ1V[1], ub_φ1(Δ2, x, β1, yM, iY)
         @assert oℶ1 <= oℶ1_ub + 1e-6
-        cost1plus2 = c1p2V[1]
-        lb = cost1plus2 + oℶ1    # this lb is always better
-        ub = cost1plus2 + oℶ1_ub # this trial upper bound could deteriorate
+        (lb = cost1plus2 + oℶ1; push!(lbV, lb))
+        ub = cost1plus2 + oℶ1_ub # 1️⃣ this trial upper bound could deteriorate
         if ub < ubV[1] # 🫖 update candidate solution
             xV[2], β1V[2], ubV[1] = x, β1, ub
         end
-        ub = ubV[1]
+        ub = ubV[1] # 2️⃣ this upper bound is the best so far
         gap = gap_lu(lb, ub)
         lb, ub = rd6(lb), rd6(ub)
         str = "t1:[g$(gCnt[1])]($(vldtV[1]))lb $lb | $ub ub, gap $gap"
@@ -785,6 +774,12 @@ end
 
 @time main(yM, true)
 @time main(yM)
+
+# [ Info: t1:[g398](true)lb 2.909623 | 2.934034 ub, gap 0.008320099678351945      
+# [ Info: t1:[g399](true)lb 2.909712 | 2.933253 ub, gap 0.0080255577464536        
+# [ Info: t1:[g400](true)lb 2.909791 | 2.931033 ub, gap 0.007247265278653914      
+# [ Info:  😊 gap < 8/1000, thus terminate at next t3
+# 706.827016 seconds (402.68 M allocations: 25.901 GiB, 0.47% gc time, 0.00% compilation time)
 
 popfirst!(lbV)
 using CairoMakie
