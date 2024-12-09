@@ -314,6 +314,60 @@ macro dualobj_code()
     )
     end)
 end
+macro primobj_code() # ❌ bilinear programming with this dual formulation would have no (dual) BestBd column
+    return esc(quote
+    JuMP.@variable(ø, p[t = 1:T, g = 1:G+1])       # generator power
+    JuMP.@variable(ø, ϱ[t = 1:T, g = 1:G+1] >= 0.) # generator cutback
+    JuMP.@variable(ø, ϖ[t = 1:T, w = 1:W] >= 0.) # wind curtail
+    JuMP.@variable(ø, ζ[t = 1:T, l = 1:L] >= 0.) # load shedding
+    JuMP.@constraint(ø, Dd1[g = 1:G+1], p[1, g] - ZP[g] >= -RD[g] * x[1, g] - SD[g] * v[1, g])              # 🧊
+    JuMP.@constraint(ø, Du1[g = 1:G+1], RU[g] * ZS[g] + SU[g] * u[1, g] >= p[1, g] - ZP[g])                 # 🧊
+    JuMP.@constraint(ø, Dd[t = 2:T, g = 1:G+1], p[t, g] - p[t-1, g] >= -RD[g] * x[t, g] - SD[g] * v[t, g])  # 🧊
+    JuMP.@constraint(ø, Du[t = 2:T, g = 1:G+1], RU[g] * x[t-1, g] + SU[g] * u[t, g] >= p[t, g] - p[t-1, g]) # 🧊
+    JuMP.@constraint(ø, Dvp[t = 1:T, w = 1:W], Y[t, w] >= ϖ[t, w]) 
+    JuMP.@constraint(ø, Dzt[t = 1:T, l = 1:L], Z[t, l] >= ζ[t, l])
+    JuMP.@constraint(ø, Dvr[t = 1:T, g = 1:G+1], p[t, g] >= ϱ[t, g])
+    JuMP.@constraint(ø, Dpi[t = 1:T, g = 1:G+1], p[t, g] >= PI[g] * x[t, g])
+    JuMP.@constraint(ø, Dps[t = 1:T, g = 1:G+1], PS[g] * x[t, g] >= p[t, g])
+    JuMP.@constraint(ø, Dbl[t = 1:T], sum(Z[t, :]) + sum(ϖ[t, :]) + sum(ϱ[t, :]) == sum(Y[t, :]) + sum(p[t, :]) + sum(ζ[t, :]))
+    JuMP.@expression(ø, lscost, sum(CL[t, l] * ζ[t, l] for t in 1:T, l in 1:L))
+    JuMP.@expression(ø, gccost, sum(   CG[g] * ϱ[t, g] for t in 1:T, g in 1:G+1))
+    JuMP.@expression(ø, primobj, lscost + gccost)
+    end)
+end
+macro dualobj_code() # ❌ bilinear programming with this dual formulation would have no (dual) BestBd column
+    return esc(quote
+    JuMP.@variable(ø, Dd1[g = 1:G+1] >= 0.)         # 🧊
+    JuMP.@variable(ø, Du1[g = 1:G+1] >= 0.)         # 🧊
+    JuMP.@variable(ø, Dd[t = 2:T, g = 1:G+1] >= 0.) # 🧊        
+    JuMP.@variable(ø, Du[t = 2:T, g = 1:G+1] >= 0.) # 🧊 
+    JuMP.@variable(ø, Dpi[t = 1:T, g = 1:G+1] >= 0.)
+    JuMP.@variable(ø, Dps[t = 1:T, g = 1:G+1] >= 0.)
+    JuMP.@variable(ø, Dvr[t = 1:T, g = 1:G+1] >= 0.)
+    JuMP.@variable(ø, Dvp[t = 1:T, w = 1:W] >= 0.)
+    JuMP.@variable(ø, Dzt[t = 1:T, l = 1:L] >= 0.)
+    JuMP.@variable(ø, Dbl[t = 1:T])
+    JuMP.@expression(ø, pCom[t = 1:T, g = 1:G+1], Dps[t, g] - Dvr[t, g] - Dpi[t, g] + Dbl[t])
+    JuMP.@constraint(ø, p1[g = 1:G+1], pCom[1, g] + Du1[g] - Dd1[g] + Dd[1+1, g] - Du[1+1, g] == 0)
+    JuMP.@constraint(ø, p2[t = 2:T-1, g = 1:G+1], pCom[t, g] + Du[t, g] - Dd[t, g] + Dd[t+1, g] - Du[t+1, g] == 0)
+    JuMP.@constraint(ø, pT[g = 1:G+1], pCom[T, g] + Du[T, g] - Dd[T, g] == 0)
+    JuMP.@constraint(ø, ϱ[t = 1:T, g = 1:G+1], Dvr[t, g] - Dbl[t] + CG[g] >= 0.)
+    JuMP.@constraint(ø, ϖ[t = 1:T, w = 1:W], Dvp[t, w] - Dbl[t] >= 0.)
+    JuMP.@constraint(ø, ζ[t = 1:T, l = 1:L], Dzt[t, l] + Dbl[t] + CL[t, l] >= 0.)
+    JuMP.@expression(ø, xobj, sum(x[t, g] * (PI[g] * Dpi[t, g] - PS[g] * Dps[t, g]) for t in 1:T, g in 1:G))
+    JuMP.@expression(ø, Yobj, sum(Y[t, w] * ( Dbl[t] - Dvp[t, w]) for t in 1:T, w in 1:W))
+    JuMP.@expression(ø, Zobj, sum(Z[t, l] * (-Dbl[t] - Dzt[t, l]) for t in 1:T, l in 1:L))
+    JuMP.@expression(ø, dualobj, xobj + Yobj + Zobj
+        + ip(Dd1 .- Du1, ZP)
+        - ip(Du1, RU .* ZS) - sum(Du[t, g] * RU[g] * x[t-1, g] for t in 2:T, g in 1:G+1)
+        - sum((Du1[g] * u[1, g] + sum(Du[t, g] * u[t, g] for t in 2:T)) * SU[g] for g in 1:G+1)
+        - sum((Dd1[g] * v[1, g] + sum(Dd[t, g] * v[t, g] for t in 2:T)) * SD[g] for g in 1:G+1)
+        - sum((Dd1[g] * x[1, g] + sum(Dd[t, g] * x[t, g] for t in 2:T)) * RD[g] for g in 1:G+1)
+    )
+    end)
+end
+
+
 
 function primobj_value(u, v, x, Y, Z) # f
     ø = JumpModel(0)
