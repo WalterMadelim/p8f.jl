@@ -77,14 +77,14 @@ function is_in(y, yM)
     JuMP.@constraint(ø, sum(c) == 1.)
     JuMP.@constraint(ø, [i = 1:N], y[i] == ip(yM[i, :], c)) # ith entry
     @optimise()
-    status == JuMP.OPTIMAL && return JuMP.value.(c)
-    error(" in is_in: status = $status")
+    status == JuMP.OPTIMAL && return true
+    return false
 end
 ds(ref, y)           = norm1(ref .- y)
 ds(ref, y::Matrix)   = [ds(ref, v) for v in eachcol(y)]
 ds(y::Matrix, ::Any) = error(" malfunction ")
+function ptsD0(N) return [zeros(N) one(ones(N, N))] end
 function pts2N(N)
-    # function ptsD0(N) return [zeros(N) one(ones(N, N))] end
     a, b = LinearAlgebra.Diagonal(ones(N)), LinearAlgebra.Diagonal(-ones(N))
     [(c % 2 == 0) ? b[i, div(c, 2)] : a[i, div(c+1, 2)] for i in 1:N, c in 1:2N]
 end
@@ -92,6 +92,34 @@ vov2m(vec) = [vec[c][r] for r in eachindex(vec[1]), c in eachindex(vec)]
 m2vov(mat) = [Vector(c) for c in eachcol(mat)]
 
 T, G, W, L, B = 4, 2, 2, 3, 11 # 🌸 G+1 is the size of (u, v, x)
+
+# an easy way
+N = T * W # cardinality of Y
+(ℙ = Distributions.Uniform(3.30, 3.80); ub = rand(ℙ, N))
+yM = [zeros(N, 1) LinearAlgebra.Diagonal(ub)]
+(ℙ = Distributions.Uniform(1.5, 5.0); den = rand(ℙ, N))
+MY = ub ./ den
+while !is_in(MY, yM)
+    MY .= MY / 1.1
+end
+N = T * L # cardinality of Z
+(ℙ = Distributions.Uniform(3.50, 4.20); ub = rand(ℙ, N))
+zM = [zeros(N, 1) LinearAlgebra.Diagonal(ub)]
+(ℙ = Distributions.Uniform(1.5, 5.0); den = rand(ℙ, N))
+MZ = ub ./ den
+while !is_in(MZ, zM)
+    MZ .= MZ / 1.1
+end
+mul_Y = 3.0 # 🥑 you want to try
+mul_Z = 4.0 # 🥑 you want to try
+MY, yM = mul_Y * MY, mul_Y * yM
+MZ, zM = mul_Z * MZ, mul_Z * zM
+Yvec2mat(vec) = reshape(vec, (T, W))
+MY, yM = Yvec2mat(MY), cat([Matrix(Yvec2mat(v)) for v in eachcol(yM)]..., dims = 3)
+Zvec2mat(vec) = reshape(vec, (T, L))
+MZ, zM = Zvec2mat(MZ), cat([Matrix(Zvec2mat(v)) for v in eachcol(zM)]..., dims = 3)
+
+
 
 begin # build (MY, yM)
     N = T * W # cardinality of Y
@@ -161,6 +189,9 @@ begin # build (MY, yM)
     Yvec2mat(vec) = reshape(vec, (T, W))
     MY, yM = Yvec2mat(MY), cat([Matrix(Yvec2mat(v)) for v in eachcol(yM)]..., dims = 3)
 end
+
+# ⚠️ For zM's generation, if T >= 6, the hard drive space is deficient
+
 begin # build (MZ, zM)
     N = T * L # cardinality of Z
     Random.seed!(89)
@@ -230,4 +261,59 @@ begin # build (MZ, zM)
     MZ, zM = Zvec2mat(MZ), cat([Matrix(Zvec2mat(v)) for v in eachcol(zM)]..., dims = 3)
 end
 
+
+
+
+
+
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+function load_UC_data(T)
+    @assert T in 1:8
+    UT = DT = 3
+    CST = [0.72, 0.60, 0.63]/5;
+    CSH = [0.15, 0.15, 0.15]/5;
+    CL = [8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 8.0 6.888 7.221; 16.0 13.776 14.443]/5;
+    CL = CL[end-T+1:end, :]
+    CG = [3.6, 3.4, 4.0]/5;
+    C2 = [34, 23, 41]/2000
+    C1 = [0.67, 0.41, 0.93]/2/5;
+    C0 = CST / T;
+    PI = [0.45, 0.375, 0.5];
+    PS = [5.5,  4,     4.5];
+    EM = C2 .* PS .* PS .+ C1 .* PS .+ C0;
+    LM = [4, 3.5, 3];
+    ZS = [0, 0, 1.0]; # Binary
+    ZP = [0, 0, 0.5];
+    NG = [3, 2] # 🍀 since `G+1` generator is on the slack bus, it doesn't contribute to any power flow, we omit it
+    NW = [2, 3]
+    NL = [4, 5, 6]
+    FM = let
+        [0.0 -0.44078818231301325 -0.3777905547603966 -0.2799660317280192 -0.29542103345397086 -0.3797533556433226; 0.0 -0.32937180203296385 -0.3066763814017814 -0.5368505424397501 -0.27700207451336545 -0.30738349678665927; 0.0 -0.229840015654023 -0.3155330638378219 -0.18318342583223077 -0.42757689203266364 -0.31286314757001815; 0.0 0.06057464187751593 -0.354492865935812 0.018549141862024054 -0.10590781852459258 -0.20249230420747694; 0.0 0.3216443011699881 0.23423126113776493 -0.3527138586915366 0.11993854023522055 0.23695476674932447; 0.0 0.10902536164428178 -0.020830957469362865 0.03338570129374399 -0.19061834882900958 -0.016785057525005476; 0.0 0.0679675129952012 -0.23669799249298656 0.02081298380774932 -0.11883340633558914 -0.39743076066016436; 0.0 0.06529291323070335 0.270224001096538 0.019993968970548615 -0.11415717519819152 0.1491923753527435; 0.0 -0.004718271353187364 0.3752831329676507 -0.001444827108524449 0.00824935667359894 -0.35168467956022; 0.0 -0.007727500862975828 -0.07244512026401648 0.11043559886871346 -0.15706353427814482 -0.0704287300373348; 0.0 -0.06324924164201379 -0.13858514047466358 -0.019368156699224842 0.11058404966199031 -0.2508845597796152]
+    end
+    BC = 2.1 * [1.0043, 2.191, 1.3047, 0.6604, 1.7162, 0.6789, 1.0538, 1.1525, 1.3338, 0.4969, 0.7816]
+    (RU = [2.5, 1.9, 2.3]; SU = 1.3 * RU; RD = 1.1 * RU; SD = 1.3 * RD)
+    return CST, CSH, CL, CG, C2, C1, C0, EM, PI, PS, LM, ZS, ZP, NG, NW, NL, FM, BC, RU, SU, RD, SD, UT, DT
+end
+CST, CSH, CL, CG, C2, C1, C0, EM, PI, PS, LM, ZS, ZP, NG, NW, NL, FM, BC, RU, SU, RD, SD, UT, DT = load_UC_data(T)
+
+Random.seed!(8544002554851888986)
+MZ = let
+    Dload = Distributions.Arcsine.(LM)
+    vec = [rand.(Dload) for t in 1:T]
+    [vec[t][l] for t in 1:T, l in 1:L]
+end
+
+
+
+
+# # 1️⃣ the first lazy method, we have N+1 extreme points
+# yM_eft = [zeros(N) yM_eft]
+# yM = yM_eft
+# v = Polyhedra.vrep(m2vov(yM));
+# poly = Polyhedra.polyhedron(v);
+# Polyhedra.ininterior(MY, poly) # yes
+# Polyhedra.volume(poly) # 1.1019052393581734e9
+# h = Polyhedra.hrep(poly) # tractable
 
