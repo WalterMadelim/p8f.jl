@@ -7,11 +7,11 @@ import JuMP
 using Logging
 GRB_ENV = Gurobi.Env()
 
-
 # if you use (u v x and beta_1) (MILP) aggregate, after 6 hours, lb rises from -340 to -228, 15217 cuts of beth1
-# TODO add a stage and use PureIP master with cb
-# 17/12/24
+# one-shot MILP is typically (a bit) faster than pureIP equipped with Benders decomposition, but the advantage of the latter is that in Gurobi's MILP it would have the primal value column
+# 18/12/24
 
+UPDTH = 1e-5 # only a update greater than this threshold will be performed
 B1BND, B2BND = 6.0, 3.6
 
 # lines are unlimited and ramp rate are not restricted in `case118.m`
@@ -23,6 +23,7 @@ jo(ø) = JuMP.objective_value(ø)
 jv(x) = JuMP.value.(x)
 jd(x) = JuMP.dual.(x)
 brcs(v) = ones(T) * transpose(v) # to broadcast those timeless cost coeffs
+macro assert_optimal() return esc(:(status == JuMP.OPTIMAL || error("$status"))) end
 macro add_β1() return esc(:(JuMP.@variable(ø, β1[eachindex(eachrow(MY)), eachindex(eachcol(MY))]))) end
 macro add_β2() return esc(:(JuMP.@variable(ø, β2[eachindex(eachrow(MZ)), eachindex(eachcol(MZ))]))) end
 macro addMatVarViaCopy(x, xΓ) return esc(:(JuMP.@variable(ø, $x[eachindex(eachrow($xΓ)), eachindex(eachcol($xΓ))]))) end
@@ -301,7 +302,7 @@ function primobj_value(u, v, x, Y, Z) # f
     @primobj_code()
     JuMP.@objective(ø, Min, primobj)
     @optimise()
-    @assert status == JuMP.OPTIMAL
+    @assert_optimal()
     JuMP.objective_value(ø)
 end
 function dualobj_value(u, v, x, Y, Z) # f
@@ -309,7 +310,7 @@ function dualobj_value(u, v, x, Y, Z) # f
     @dualobj_code()
     JuMP.@objective(ø, Max, dualobj)
     @optimise()
-    @assert status == JuMP.OPTIMAL
+    @assert_optimal()
     JuMP.objective_value(ø)
 end
 function master_con() # when ℶ1 is empty
@@ -321,7 +322,7 @@ function master_con() # when ℶ1 is empty
     JuMP.@expression(ø, o2, ip(MY, β1))
     JuMP.@objective(ø, Min, o1 + o2)
     @optimise()
-    @assert status == JuMP.OPTIMAL
+    @assert_optimal()
     u = jv(u)
     v = jv(v)
     x = jv(x)
@@ -340,7 +341,7 @@ function get_trial_β2_oℶ2() # when ℶ2 is empty
     (JuMP.set_lower_bound.(β2, -B2BND); JuMP.set_upper_bound.(β2, B2BND))
     vldtV[2] = false
     @optimise()
-    @assert status == JuMP.OPTIMAL
+    @assert_optimal()
     return β2, oℶ2 = jv(β2), -Inf
 end
 function get_trial_β2_oℶ2(ℶ2, u, v, x, Y) # invoke next to argmaxY
@@ -363,29 +364,28 @@ function get_trial_β2_oℶ2(ℶ2, u, v, x, Y) # invoke next to argmaxY
         @assert status == JuMP.DUAL_INFEASIBLE
         (JuMP.set_lower_bound.(β2, -B2BND); JuMP.set_upper_bound.(β2, B2BND))
         @optimise()
-        @assert status == JuMP.OPTIMAL
+        @assert_optimal()
         vldtV[2] = false
     end
     return β2, oℶ2 = jv(β2), JuMP.value(o2)
 end
 function argmaxZ(u, v, x, Y, β2) # 💻 Feat
-    subProcedureTime = 7200
     ø = JumpModel(2)
     @Zfeas_code() # def of Z included
     @dualobj_code()
     JuMP.@objective(ø, Max, -ip(Z, β2) + dualobj) # dualobj is f's
-    JuMP.set_attribute(ø, "TimeLimit", subProcedureTime) # an hour
-    # JuMP.unset_silent(ø)
+    t_start = time()
     @optimise()
-    status == JuMP.OPTIMAL && return jv(Z)
-    status == JuMP.TIME_LIMIT && error("Bilinear Program cannot stop in $(subProcedureTime)s")
-    error("argmaxZ(u, v, x, Y, β2): $status")
+    t_interval = time() - t_start
+    t_interval > 3600 && @error("⋅⋅⋅⋅⋅$t_interval⋅⋅⋅⋅⋅")
+    @assert_optimal()
+    return jv(Z)
 end
 phi_2(u, v, x, Y, Z, β2) = -ip(β2, Z) + primobj_value(u, v, x, Y, Z) # ✅ phi_2 is eval by def, Not an estimate via Δ2 ⚠️
 function evalPush_Δ2(u, v, x, yM, iY, Z, β2)
     φ2_via_model = ub_φ2(u, v, x, iY, β2)
     φ2_via_eval = phi_2(u, v, x, yM[:, :, iY], Z, β2)
-    φ2_via_eval < φ2_via_model - 1e-5 || return true # Δ2 is saturated
+    φ2_via_eval < φ2_via_model - UPDTH || return true # Δ2 is saturated
     push!(Δ2["f"], φ2_via_eval)
     push!(Δ2["u"], u)
     push!(Δ2["v"], v)
@@ -407,7 +407,7 @@ function gencut_f_uvxY(Z, uΓ, vΓ, xΓ, YΓ) # Ben cut
     @primobj_code()
     JuMP.@objective(ø, Min, primobj) # obj must be the convex function you want to build CTPLN model for
     @optimise()
-    @assert status == JuMP.OPTIMAL "$status"
+    @assert_optimal()
     obj = jo(ø)
     pu  = jd(cpu)
     pv  = jd(cpv)
@@ -424,7 +424,7 @@ end
 function tryPush_ℶ2(Z, yM, iY, oℶ2, u, v, x, β2) # 👍 use this directly
     cn, pu, pv, px, pY, pβ2 = gencut_ℶ2(Z, yM, iY, NaN, u, v, x) # you'll always gen a cut with cn being finite
     new_oℶ2 = cn + ip(pu, u) + ip(pv, v) + ip(px, x) + ip(pY, yM[:, :, iY]) + ip(pβ2, β2)
-    new_oℶ2 > oℶ2 + 1e-5 || (cutSuccV[2] = false; return)
+    new_oℶ2 > oℶ2 + UPDTH || (cutSuccV[2] = false; return)
     push!(ℶ2["st"], true)
     push!(ℶ2["cn"], cn)
     push!(ℶ2["pu"], pu)
@@ -537,7 +537,7 @@ function tryPush_ℶ1(yM, iY, oℶ1, u, v, x, β1)
     cn, pu, pv, px, pβ1 = gencut_ℶ1(yM, iY, NaN, u, v, x)
     cn == -Inf && (cutSuccV[1] = false; return false) # (No push! to ℶ1; No saturation)
     new_oℶ1 = cn + ip(pu, u) + ip(pv, v) + ip(px, x) + ip(pβ1, β1)
-    new_oℶ1 > oℶ1 + 1e-5 || (cutSuccV[1] = false; return true) # (No push! to ℶ1 due to {saturation = true})
+    new_oℶ1 > oℶ1 + UPDTH || (cutSuccV[1] = false; return true) # (No push! to ℶ1 due to {saturation = true})
     push!(ℶ1["st"], true)
     push!(ℶ1["cn"], cn)
     push!(ℶ1["pu"], pu)
@@ -583,7 +583,7 @@ function build_sufficient_ℶ1()
         status == JuMP.OPTIMAL && break
         @set_β1_bound()
         @optimise()
-        @assert status == JuMP.OPTIMAL
+        @assert_optimal()
         u_, v_, x_, β1_ = jv(u), jv(v), jv(x), jv(β1)
         iY = argmaxindY(u_, v_, x_, yM, β1_)
         vldtV[2] = true
@@ -624,7 +624,7 @@ function get_β2_oℶ2(ℶ2, u, v, x, Y) # A concise version
     end
     JuMP.@objective(ø, Min, ip(MZ, β2) + o2)
     @optimise()
-    @assert status == JuMP.OPTIMAL
+    @assert_optimal()
     return β2, oℶ2 = jv(β2), JuMP.value(o2)
 end
 function Mi_master_without_callback() # as a template for reference
@@ -707,7 +707,7 @@ function my_callback_function(cb_data, cb_where::Cint)
     u_, v_, x_, β1_ = jvcb(u), jvcb(v), jvcb(x), jvcb(β1)
     while true # must generate violating cut, or terminate
         iY = argmaxindY(u_, v_, x_, yM, β1_)
-            ubℶ1 = ub_φ1(u_, v_, x_, yM, iY, β1_)
+        ubℶ1 = ub_φ1(u_, v_, x_, yM, iY, β1_)
         β2, oℶ2 = get_β2_oℶ2(ℶ2, u_, v_, x_, yM[:, :, iY])
         Z = argmaxZ(u_, v_, x_, yM[:, :, iY], β2)
         Δ2_saturated = evalPush_Δ2(u_, v_, x_, yM, iY, Z, β2)
@@ -717,19 +717,11 @@ function my_callback_function(cb_data, cb_where::Cint)
         ℶ1_saturated = tryPush_ℶ1(yM, iY, lbℶ1, u_, v_, x_, β1_)
         if ℶ1_saturated
             if Δ2_saturated && cutSuccV[2] == false
-                @info "ℶ2, ℶ1, Δ2 S⋅A⋅T, thus terminate optimization"
-                Gurobi.GRBterminate(JuMP.backend(ø))
+                @info "🥑 ℶ2, ℶ1, Δ2 S⋅A⋅T, thus return without a violating cut"
                 return
             end
-            # logging info put here to reduce clutter
-            # ubℶ1_invalid = ub_φ1(u_, v_, x_, yM, iY, β1_)
-            # ub = o1po2 + ubℶ1
-            # ub_invalid = o1po2 + ubℶ1_invalid
-            # lb = o1po2 + lbℶ1
-            # global ubs = min(ubs, ub)
-            # @info "($ı)[+$cno] lb = $lb | $ubs = ubs `$ub_invalid`"
         else
-            @assert cutSuccV[1]
+            cutSuccV[1] || @error "ℶ1 is unupdated when it is unsaturated"
             ı = ℶ1CntV[1]
             ı += 1
             cut_expr = ℶ1["cn"][ı] + ip(ℶ1["pu"][ı], u) + ip(ℶ1["pv"][ı], v) + ip(ℶ1["px"][ı], x) + ip(ℶ1["pβ"][ı], β1)
@@ -739,8 +731,8 @@ function my_callback_function(cb_data, cb_where::Cint)
         end
     end
 end
-ubs = Inf
 ℶ1CntV = [length(ℶ1["cn"])]
+UPDTH = 1.0 # only a update greater than this threshold will be performed
 # .....................................
 ø = JumpModel(2)
 @uvxfeas_code_int()
@@ -761,4 +753,3 @@ JuMP.MOI.set(ø, Gurobi.CallbackFunction(), my_callback_function)
 JuMP.unset_silent(ø)
 @optimise() # --> goto callback
 @warn "Mi_master_with_callback is over!"
-
