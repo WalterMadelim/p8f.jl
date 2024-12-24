@@ -303,8 +303,17 @@ function my_callback_function(cb_data, cb_where::Cint)
         tr2v_cn = JuMP.objective_value(tr2) - ip(tr2v_cpx, x)
         pb1 = -Y # to emphasize
         if oΛ1_check < tr2v_cn + ip(tr2v_cpx, x) + ip(pb1, b1) - UPDTOL
+            linear_part_expr = ip(tr2v_cpx, tr1_x) + ip(pb1, tr1_b1)
+            JuMP.map_coefficients_inplace!(linear_part_expr) do x
+                if abs(x) < 5e-13
+                    return 0.
+                else
+                    return x
+                end
+            end
+            JuMP.drop_zeros!(linear_part_expr)
             JuMP.MOI.submit(tr1, JuMP.MOI.LazyConstraint(cb_data), 
-                JuMP.@build_constraint(oΛ1 >= tr2v_cn + ip(tr2v_cpx, tr1_x) + ip(pb1, tr1_b1))
+                JuMP.@build_constraint(oΛ1 >= tr2v_cn + linear_part_expr)
             )
             return
         else
@@ -317,3 +326,11 @@ function my_callback_function(cb_data, cb_where::Cint)
         end
     end
 end
+
+(JuMP.delete_lower_bound.([tr1_u tr1_v tr1_x]); JuMP.delete_upper_bound.([tr1_u tr1_v tr1_x]))
+JuMP.set_binary.([tr1_u tr1_v tr1_x])
+JuMP.MOI.set(tr1, JuMP.MOI.RawOptimizerAttribute("LazyConstraints"), 1)
+JuMP.MOI.set(tr1, Gurobi.CallbackFunction(), my_callback_function)
+JuMP.unset_silent(tr1)
+@optimize_assert_optimal(tr1)
+
