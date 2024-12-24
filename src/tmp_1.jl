@@ -38,7 +38,6 @@ macro optimize_assert_optimal(model)
     end)
 end
 
-
 UPDTOL = 0.04 #  If this param is inappropriate (e.g too small), program may get stuck at argZ
 B1BND, B2BND = 6.0, 3.6
 
@@ -280,6 +279,11 @@ end
 function my_callback_function(cb_data, cb_where::Cint)
     jvcb(x) = JuMP.callback_value(cb_data, x)
     cb_where == Gurobi.GRB_CB_MIPSOL || return
+    lb = let
+        resultP = Ref{Cdouble}()
+        Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPSOL_OBJBND, resultP)
+        resultP[]
+    end
     Gurobi.load_callback_variable_primal(cb_data, cb_where)
     oΛ1_check = jvcb(oΛ1) # ✂️
     x, u, b1 = jvcb.(tr1_x), jvcb.(tr1_u), jvcb.(tr1_b1)
@@ -303,25 +307,17 @@ function my_callback_function(cb_data, cb_where::Cint)
         tr2v_cn = JuMP.objective_value(tr2) - ip(tr2v_cpx, x)
         pb1 = -Y # to emphasize
         if oΛ1_check < tr2v_cn + ip(tr2v_cpx, x) + ip(pb1, b1) - UPDTOL
-            linear_part_expr = ip(tr2v_cpx, tr1_x) + ip(pb1, tr1_b1)
-            JuMP.map_coefficients_inplace!(linear_part_expr) do x
-                if abs(x) < 5e-13
-                    return 0.
-                else
-                    return x
-                end
-            end
-            JuMP.drop_zeros!(linear_part_expr)
             JuMP.MOI.submit(tr1, JuMP.MOI.LazyConstraint(cb_data), 
-                JuMP.@build_constraint(oΛ1 >= tr2v_cn + linear_part_expr)
+                JuMP.@build_constraint(oΛ1 >= tr2v_cn + ip(tr2v_cpx, tr1_x) + ip(pb1, tr1_b1))
             )
+            @info "lb = $lb"
             return
         else
             updVec[1] = false
         end
         if all(updVec .== false)
             abs_gap = oΛ1_hat - oΛ1_check
-            @info "🥑🥑🥑 all S⋅A⋅T, absGap = $abs_gap (=$oΛ1_hat - $oΛ1_check), given UPDTOL = $UPDTOL"   
+            @info "all S⋅A⋅T🥑gap = $abs_gap = $oΛ1_hat - $oΛ1_check 🥑UPDTOL = $UPDTOL 🥑lb = $lb"   
             return
         end
     end
@@ -331,6 +327,9 @@ end
 JuMP.set_binary.([tr1_u tr1_v tr1_x])
 JuMP.MOI.set(tr1, JuMP.MOI.RawOptimizerAttribute("LazyConstraints"), 1)
 JuMP.MOI.set(tr1, Gurobi.CallbackFunction(), my_callback_function)
-JuMP.unset_silent(tr1)
-@optimize_assert_optimal(tr1)
+JuMP.set_silent(tr1)
+JuMP.optimize!(tr1)
+# @optimize_assert_optimal(tr1)
+lb = JuMP.objective_value(tr1)
+@info "lb = $lb"
 
