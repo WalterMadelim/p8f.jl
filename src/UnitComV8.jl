@@ -5,6 +5,11 @@ import Random
 import JuMP
 import Gurobi
 using Logging
+
+# use output.log to monitor
+# T = 24
+# 25/12/24
+
 GRB_ENV = Gurobi.Env()
 Random.seed!(3)
 function ip(x, y) return LinearAlgebra.dot(x, y) end
@@ -31,30 +36,32 @@ function push_Δ2(f, x, iY, b2)
     push!(Δ2["iY"], iY)
     push!(Δ2["b2"], b2)
 end
-macro optimize_assert_optimal(model)
+macro optimize_assert_optimal(m)
     return esc(quote
-        model_status = optimise($model)
+        model_status = optimise($m)
         model_status == JuMP.OPTIMAL || error("$model_status")
     end)
 end
+function grb_set_silent(m) return Gurobi.GRBsetintparam(Gurobi.GRBgetenv(JuMP.backend(m)), Gurobi.GRB_INT_PAR_OUTPUTFLAG, 0) end
 
-
-UPDTOL = 0.04 #  If this param is inappropriate (e.g too small), program may get stuck at argZ
+UPDTOL = 0.04 # If this param is inappropriate (e.g too small), program may get stuck at argZ
 B1BND, B2BND = 6.0, 3.6
 
-T = 8
 G = 2
 PI = [0.45, 0.375, 0.5];
 PS = [4.5, 4, 5.5];
 ZS = [0, 0,   1]
 CST = [0.63, 0.60, 0.72]
 CG = [0.8, 0.68, 0.72]
-CL = [1.6 1.3776 1.4442; 1.6 1.3776 1.4442; 1.6 1.3776 1.4442; 1.6 1.3776 1.4442; 1.6 1.3776 1.4442; 1.6 1.3776 1.4442; 1.6 1.3776 1.4442; 3.2 2.7552 2.8886]
+CL_BASE = [1.6, 1.3776, 1.4442]
 NW = [2, 3]
 W = 2
 NL = [4, 5, 6]
 L = 3
 LM = [4.0, 3.5, 3.0]
+T = 24
+(CL = brcs(CL_BASE); CL[end, :] *= 2);
+
 MZ = gen_load_pattern(LM)
 MY, yM, NY = let
     YABSMAX = [1.5, 1.2]
@@ -99,7 +106,7 @@ end;
 
 UT = DT = 3
 tr1 = GurobiDirectModel();
-JuMP.set_silent(tr1);
+grb_set_silent(tr1)
 JuMP.@variable(tr1, oΛ1);
 JuMP.@variable(tr1, tr1_b1[eachindex(eachrow(MY)), eachindex(eachcol(MY))]);
 JuMP.@variable(tr1, 0 <= tr1_u[t = 1:T, g = 1:G+1] <= 1);
@@ -113,6 +120,7 @@ JuMP.@constraint(tr1, [g = 1:G+1, t = T-DT+1:T], sum(1 - tr1_x[i, g] - tr1_v[t, 
 (JuMP.set_lower_bound.(tr1_b1, -B1BND); JuMP.set_upper_bound.(tr1_b1,  B1BND));
 JuMP.@objective(tr1, Min, ip(brcs(CST), tr1_u) + ip(MY, tr1_b1)); # ⏰ initial obj
 @optimize_assert_optimal(tr1)
+
 u = JuMP.value.(tr1_u) # 🥑
 v = JuMP.value.(tr1_v) # 🥑
 x = JuMP.value.(tr1_x) # 🥑
@@ -130,7 +138,7 @@ macro initial_endstage_code()
     end)
 end
 tr2 = GurobiDirectModel();
-JuMP.set_silent(tr2);
+grb_set_silent(tr2)
 JuMP.@variable(tr2, oΛ2);
 JuMP.@variable(tr2, tr2_b2[eachindex(eachrow(MZ)), eachindex(eachcol(MZ))]);
 JuMP.@variable(tr2, tr2_x[eachindex(eachrow(x)), eachindex(eachcol(x))]);
@@ -141,7 +149,7 @@ JuMP.@objective(tr2, Min, ip(MZ, tr2_b2)); # ⏰ initial obj
 b2 = JuMP.value.(tr2_b2) # 🥑
 begin # initialize the end stage subprocedure
     argZ = GurobiDirectModel(); # given x, Y, b2
-    JuMP.set_silent(argZ);
+    grb_set_silent(argZ)
     JuMP.@variable(argZ, argZ_Z[eachindex(eachrow(b2)), eachindex(eachcol(b2))]);
             (JuMP.set_lower_bound.(argZ_Z, 0.9 * MZ); JuMP.set_upper_bound.(argZ_Z, 1.1 * MZ));
             JuMP.@variable(argZ, argZ_a[eachindex(eachrow(MZ)), eachindex(eachcol(MZ))]);
@@ -207,7 +215,7 @@ function overrate_psi(x, iY)
     JuMP.@constraint(ø, sum(b2V2[r] * λ[r] for r in 1:R2) .== b2)
     JuMP.@constraint(ø, sum( xV2[r] * λ[r] for r in 1:R2) .==  x)
     JuMP.@objective(ø, Min, ip(MZ, b2) + ip(fV2, λ))
-    JuMP.set_silent(ø)
+    grb_set_silent(ø)
     optimise(ø) == JuMP.OPTIMAL || return Inf
     return JuMP.objective_value(ø)
 end
@@ -235,57 +243,18 @@ macro mature_endstage_code()
         end
     end)
 end
-updVec = trues(3) # [1] for Λ1, [2] for Λ2, [3] for Δ2
-while true
-    global tr2_cpx, tr2_cpY
-    (JuMP.delete_lower_bound.(tr1_b1); JuMP.delete_upper_bound.(tr1_b1));
-    tr1_status = optimise(tr1)
-    tr1_status == JuMP.OPTIMAL && (@info "🥑 b1 now has auto-bound"; break)
-    (JuMP.set_lower_bound.(tr1_b1, -B1BND); JuMP.set_upper_bound.(tr1_b1,  B1BND));
-    @optimize_assert_optimal(tr1)
-    u = JuMP.value.(tr1_u) # 🥑
-    v = JuMP.value.(tr1_v) # 🥑
-    x = JuMP.value.(tr1_x) # 🥑
-    b1 = JuMP.value.(tr1_b1) # 🥑
-    oΛ1_check = JuMP.value(oΛ1) # ✂️
-    iY, Y, oΛ1_hat = fast_get_Y_etc(x, b1) # 🥑✂️ 
-    JuMP.delete.(tr2, tr2_cpx)
-    JuMP.delete.(tr2, tr2_cpY)
-    tr2_cpx = JuMP.@constraint(tr2, tr2_x .== x);
-    tr2_cpY = JuMP.@constraint(tr2, tr2_Y .== Y);
-    @optimize_assert_optimal(tr2)
-    b2 = JuMP.value.(tr2_b2) # 🥑
-    oΛ2_check = JuMP.value(oΛ2) # ✂️
-    JuMP.@objective(argZ, Max, argZ_cn + ip(argZ_c_x, x) + ip(argZ_c_Y, Y) + ip(argZ_c_b2, b2)); # update obj
-    @optimize_assert_optimal(argZ)
-    updVec .= true
-    @mature_endstage_code() # <- oΛ2_check, oΛ1_hat
-    # updVec[3] && ?? reopt Y ??
-    @optimize_assert_optimal(tr2)
-    tr2v_cpx = JuMP.dual.(tr2_cpx)
-    tr2v_cn = JuMP.objective_value(tr2) - ip(tr2v_cpx, x)
-    pb1 = -Y # to emphasize
-    if oΛ1_check < tr2v_cn + ip(tr2v_cpx, x) + ip(pb1, b1) - 1e-13 # at initial stage, we want looser updates
-        JuMP.@constraint(tr1, oΛ1 >= tr2v_cn + ip(tr2v_cpx, tr1_x) + ip(pb1, tr1_b1));
-    else
-        updVec[1] = false
-    end
-    all(updVec .== false) && error("Initialization fails before b1 has auto-bound, consider enlarging B1BND")
-end
-
-function my_callback_function(cb_data, cb_where::Cint)
-    jvcb(x) = JuMP.callback_value(cb_data, x)
-    cb_where == Gurobi.GRB_CB_MIPSOL || return
-    Gurobi.load_callback_variable_primal(cb_data, cb_where)
-    oΛ1_check = jvcb(oΛ1) # ✂️
-    x, u, b1 = jvcb.(tr1_x), jvcb.(tr1_u), jvcb.(tr1_b1)
-    while true # must generate violating cut unless all saturation
-        global tr2_cpx, tr2_cpY
-        iY, Y, oΛ1_hat = fast_get_Y_etc(x, b1) # 🥑✂️ 
+macro refresh_rhs_of_tr2()
+    return esc(quote
         JuMP.delete.(tr2, tr2_cpx)
         JuMP.delete.(tr2, tr2_cpY)
-        tr2_cpx = JuMP.@constraint(tr2, tr2_x .== x);
-        tr2_cpY = JuMP.@constraint(tr2, tr2_Y .== Y);
+        tr2_cpx = JuMP.@constraint(tr2, tr2_x .== x)
+        tr2_cpY = JuMP.@constraint(tr2, tr2_Y .== Y)
+    end)
+end
+macro routine_code()
+    return esc(quote
+        iY, Y, oΛ1_hat = fast_get_Y_etc(x, b1) # 🥑✂️ 
+        @refresh_rhs_of_tr2()
         @optimize_assert_optimal(tr2)
         b2 = JuMP.value.(tr2_b2) # 🥑
         oΛ2_check = JuMP.value(oΛ2) # ✂️
@@ -298,28 +267,67 @@ function my_callback_function(cb_data, cb_where::Cint)
         tr2v_cpx = JuMP.dual.(tr2_cpx)
         tr2v_cn = JuMP.objective_value(tr2) - ip(tr2v_cpx, x)
         pb1 = -Y # to emphasize
+    end)
+end
+updVec = trues(3) # [1] for Λ1, [2] for Λ2, [3] for Δ2
+while true
+    global tr2_cpx, tr2_cpY
+    (JuMP.delete_lower_bound.(tr1_b1); JuMP.delete_upper_bound.(tr1_b1));
+    tr1_status = optimise(tr1)
+    tr1_status == JuMP.OPTIMAL && (@info "🥑 b1 now has auto-bound"; break)
+    (JuMP.set_lower_bound.(tr1_b1, -B1BND); JuMP.set_upper_bound.(tr1_b1,  B1BND));
+    @optimize_assert_optimal(tr1)
+    lb = JuMP.objective_value(tr1)
+    x, b1 = JuMP.value.(tr1_x), JuMP.value.(tr1_b1) # 🥑
+    oΛ1_check = JuMP.value(oΛ1) # ✂️
+    @routine_code()
+    if oΛ1_check < tr2v_cn + ip(tr2v_cpx, x) + ip(pb1, b1) - 1e-13 # at initial stage, we want looser updates
+        JuMP.@constraint(tr1, oΛ1 >= tr2v_cn + ip(tr2v_cpx, tr1_x) + ip(pb1, tr1_b1));
+    else
+        updVec[1] = false
+    end
+    @info "updVec = $updVec, lb = $lb"
+    all(updVec .== false) && error("Initialization fails before b1 has auto-bound, consider enlarging B1BND")
+end
+
+function my_callback_function(cb_data, cb_where::Cint)
+    jvcb(x) = JuMP.callback_value(cb_data, x)
+    cb_where == Gurobi.GRB_CB_MIPSOL || return
+    lb = let resultP = Ref{Cdouble}()
+        Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPSOL_OBJBND, resultP)
+        resultP[]
+    end
+    Gurobi.load_callback_variable_primal(cb_data, cb_where)
+    x, b1 = jvcb.(tr1_x), jvcb.(tr1_b1) # 🥑
+    oΛ1_check = jvcb(oΛ1) # ✂️ 
+    while true # must generate violating cut unless all saturation
+        global tr2_cpx, tr2_cpY
+        @routine_code()
         if oΛ1_check < tr2v_cn + ip(tr2v_cpx, x) + ip(pb1, b1) - UPDTOL
-            JuMP.MOI.submit(tr1, JuMP.MOI.LazyConstraint(cb_data), 
+            JuMP.MOI.submit(tr1, JuMP.MOI.LazyConstraint(cb_data),
                 JuMP.@build_constraint(oΛ1 >= tr2v_cn + ip(tr2v_cpx, tr1_x) + ip(pb1, tr1_b1))
             )
+            mywr("$lb")
             return
         else
             updVec[1] = false
         end
         if all(updVec .== false)
             abs_gap = oΛ1_hat - oΛ1_check
-            @info "🥑🥑🥑 all S⋅A⋅T, absGap = $abs_gap (=$oΛ1_hat - $oΛ1_check), given UPDTOL = $UPDTOL"   
+            mywr("all S⋅A⋅T, gap = $abs_gap = $oΛ1_hat - $oΛ1_check, UPDTOL = $UPDTOL, lb = $lb")
             return
         end
     end
 end
+
 (JuMP.delete_lower_bound.([tr1_u tr1_v tr1_x]); JuMP.delete_upper_bound.([tr1_u tr1_v tr1_x]))
 JuMP.set_binary.([tr1_u tr1_v tr1_x])
 JuMP.MOI.set(tr1, JuMP.MOI.RawOptimizerAttribute("LazyConstraints"), 1)
 JuMP.MOI.set(tr1, Gurobi.CallbackFunction(), my_callback_function)
-JuMP.unset_silent(tr1)
+function mywr(s) return open(f -> println(f, s), "output.log", "a") end # to seperate from Gurobi's warning
+mywr("A pristine output.log")
 @optimize_assert_optimal(tr1)
-lb = JuMP.objective_value(tr1)
-@info "lb = $lb"
+lb = JuMP.objective_value(tr1);
+mywr("After quit optimization, lb = $lb")
 
 
