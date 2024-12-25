@@ -1,20 +1,20 @@
+import JuMP
+import Gurobi
 import LinearAlgebra
 import Distributions
 import Statistics
 import Random
-import JuMP
-import Gurobi
 using Logging
 
-# use output.log to monitor
-# T = 24
+# set a time limit for argZ to make sure we won't get stuck at this subprocedure
+# in this test case, the global convergence is attained in a short time even if argZ might sometimes not solved to optimal
 # 25/12/24
 
 GRB_ENV = Gurobi.Env()
 Random.seed!(3)
 function ip(x, y) return LinearAlgebra.dot(x, y) end
 function GurobiDirectModel() return JuMP.direct_model(Gurobi.Optimizer(GRB_ENV)) end
-function optimise(m) return (JuMP.optimize!(m), JuMP.termination_status(m))[end] end
+function optimise(m) return (JuMP.optimize!(m); JuMP.termination_status(m)) end
 function brcs(v) return ones(T) * transpose(v) end
 function gen_load_pattern(fLM)
     fL = length(fLM)
@@ -42,7 +42,6 @@ macro optimize_assert_optimal(m)
         model_status == JuMP.OPTIMAL || error("$model_status")
     end)
 end
-function grb_set_silent(m) return Gurobi.GRBsetintparam(Gurobi.GRBgetenv(JuMP.backend(m)), Gurobi.GRB_INT_PAR_OUTPUTFLAG, 0) end
 
 UPDTOL = 0.04 # If this param is inappropriate (e.g too small), program may get stuck at argZ
 B1BND, B2BND = 6.0, 3.6
@@ -64,7 +63,7 @@ T = 24
 
 MZ = gen_load_pattern(LM)
 MY, yM, NY = let
-    YABSMAX = [1.5, 1.2]
+    YABSMAX = [3.5, 2.2]
     Pr = Distributions.Uniform.(0.2 * rand(W), YABSMAX / 1.1)
     Ybaseline = [rand(Pr[w]) for t in 1:T, w in 1:W]
     YMIN, YMAX = 0.9 * Ybaseline, 1.1 * Ybaseline # used to construct vertices
@@ -106,50 +105,50 @@ end;
 
 UT = DT = 3
 tr1 = GurobiDirectModel();
-grb_set_silent(tr1)
-JuMP.@variable(tr1, oΛ1);
+JuMP.set_silent(tr1);
+JuMP.@variable(tr1, oΛ1); # is also the last term in obj_expr
 JuMP.@variable(tr1, tr1_b1[eachindex(eachrow(MY)), eachindex(eachcol(MY))]);
+JuMP.@expression(tr1, tr1_obj_expr_b1, ip(MY, tr1_b1));
 JuMP.@variable(tr1, 0 <= tr1_u[t = 1:T, g = 1:G+1] <= 1);
+JuMP.@expression(tr1, tr1_obj_expr_u, ip(brcs(CST), tr1_u));
 JuMP.@variable(tr1, 0 <= tr1_v[t = 1:T, g = 1:G+1] <= 1);
 JuMP.@variable(tr1, 0 <= tr1_x[t = 1:T, g = 1:G+1] <= 1);
-JuMP.@constraint(tr1, tr1_x .- vcat(transpose(ZS), tr1_x)[1:end-1, :] .== tr1_u .- tr1_v);
-JuMP.@constraint(tr1, [g = 1:G+1, t = 1:T-UT+1], sum(tr1_x[i, g] for i in t:t+UT-1) >= UT * tr1_u[t, g]);
-JuMP.@constraint(tr1, [g = 1:G+1, t = T-UT+1:T], sum(tr1_x[i, g] - tr1_u[t, g] for i in t:T) >= 0);
-JuMP.@constraint(tr1, [g = 1:G+1, t = 1:T-DT+1], sum(1 - tr1_x[i, g] for i in t:t+DT-1) >= DT * tr1_v[t, g]);
-JuMP.@constraint(tr1, [g = 1:G+1, t = T-DT+1:T], sum(1 - tr1_x[i, g] - tr1_v[t, g] for i in t:T) >= 0);
+let # 1st stage feasible region
+    JuMP.@constraint(tr1, tr1_x .- vcat(transpose(ZS), tr1_x)[1:end-1, :] .== tr1_u .- tr1_v)
+    JuMP.@constraint(tr1, [g = 1:G+1, t = 1:T-UT+1], sum(tr1_x[i, g] for i in t:t+UT-1) >= UT * tr1_u[t, g])
+    JuMP.@constraint(tr1, [g = 1:G+1, t = T-UT+1:T], sum(tr1_x[i, g] - tr1_u[t, g] for i in t:T) >= 0)
+    JuMP.@constraint(tr1, [g = 1:G+1, t = 1:T-DT+1], sum(1 - tr1_x[i, g] for i in t:t+DT-1) >= DT * tr1_v[t, g])
+    JuMP.@constraint(tr1, [g = 1:G+1, t = T-DT+1:T], sum(1 - tr1_x[i, g] - tr1_v[t, g] for i in t:T) >= 0)
+end;
 (JuMP.set_lower_bound.(tr1_b1, -B1BND); JuMP.set_upper_bound.(tr1_b1,  B1BND));
-JuMP.@objective(tr1, Min, ip(brcs(CST), tr1_u) + ip(MY, tr1_b1)); # ⏰ initial obj
-@optimize_assert_optimal(tr1)
-
-u = JuMP.value.(tr1_u) # 🥑
-v = JuMP.value.(tr1_v) # 🥑
-x = JuMP.value.(tr1_x) # 🥑
-b1 = JuMP.value.(tr1_b1) # 🥑
-(iY = rand(1:NY); Y = yM[:, :, iY]) # 🥑
-macro initial_endstage_code()
-    return esc(quote
-        argvZ_obj  = JuMP.objective_value(argZ) # the value of φ2 at (x, Y, b2)
-        argvZ_cn   =  JuMP.value(argZ_cn  )
-        argvZ_c_x  = JuMP.value.(argZ_c_x )
-        argvZ_c_Y  = JuMP.value.(argZ_c_Y )
-        argvZ_c_b2 = JuMP.value.(argZ_c_b2)
-        push_Δ2(argvZ_obj, x, iY, b2)
-        JuMP.@constraint(tr2, oΛ2 >= argvZ_cn + ip(argvZ_c_x, tr2_x) + ip(argvZ_c_Y, tr2_Y) + ip(argvZ_c_b2, tr2_b2)); # the 1st oΛ2 cut 
-    end)
-end
+JuMP.@objective(tr1, Min, tr1_obj_expr_u + tr1_obj_expr_b1); # ⏰ initial obj
+@optimize_assert_optimal(tr1);
+x = JuMP.value.(tr1_x); # 🥑
+b1 = JuMP.value.(tr1_b1); # 🥑
+(iY = rand(1:NY); Y = yM[:, :, iY]); # 🥑
 tr2 = GurobiDirectModel();
-grb_set_silent(tr2)
+JuMP.set_silent(tr2);
 JuMP.@variable(tr2, oΛ2);
 JuMP.@variable(tr2, tr2_b2[eachindex(eachrow(MZ)), eachindex(eachcol(MZ))]);
 JuMP.@variable(tr2, tr2_x[eachindex(eachrow(x)), eachindex(eachcol(x))]);
 JuMP.@variable(tr2, tr2_Y[eachindex(eachrow(Y)), eachindex(eachcol(Y))]);
 (JuMP.set_lower_bound.(tr2_b2, -B2BND); JuMP.set_upper_bound.(tr2_b2,  B2BND));
 JuMP.@objective(tr2, Min, ip(MZ, tr2_b2)); # ⏰ initial obj
-@optimize_assert_optimal(tr2)
-b2 = JuMP.value.(tr2_b2) # 🥑
+@optimize_assert_optimal(tr2);
+b2 = JuMP.value.(tr2_b2); # 🥑
+macro initial_endstage_code()
+    return esc(quote
+        argvZ_obj  = JuMP.objective_bound(argZ)
+        argvZ_cn, argvZ_c_x, argvZ_c_Y, argvZ_c_b2 = JuMP.value(argZ_cn), JuMP.value.(argZ_c_x), JuMP.value.(argZ_c_Y), JuMP.value.(argZ_c_b2)
+        push_Δ2(argvZ_obj, x, iY, b2) # the upper bound is valid since it is the objBound of a Max Program
+        # the lower-bounding-cut generated for the previous model `tr2` is valid since the solution is feasible
+        JuMP.@constraint(tr2, oΛ2 >= argvZ_cn + ip(argvZ_c_x, tr2_x) + ip(argvZ_c_Y, tr2_Y) + ip(argvZ_c_b2, tr2_b2)); # the 1st oΛ2 cut 
+    end)
+end
 begin # initialize the end stage subprocedure
-    argZ = GurobiDirectModel(); # given x, Y, b2
-    grb_set_silent(argZ)
+    argZ = GurobiDirectModel(); # given x, Y, b2, which are all only in obj
+    JuMP.set_attribute(argZ, "TimeLimit", 15.0);
+    JuMP.set_silent(argZ);
     JuMP.@variable(argZ, argZ_Z[eachindex(eachrow(b2)), eachindex(eachcol(b2))]);
             (JuMP.set_lower_bound.(argZ_Z, 0.9 * MZ); JuMP.set_upper_bound.(argZ_Z, 1.1 * MZ));
             JuMP.@variable(argZ, argZ_a[eachindex(eachrow(MZ)), eachindex(eachcol(MZ))]);
@@ -180,20 +179,21 @@ tr2_cpx = JuMP.@constraint(tr2, tr2_x .== x);
 tr2_cpY = JuMP.@constraint(tr2, tr2_Y .== Y);
 while true
     (JuMP.delete_lower_bound.(tr2_b2); JuMP.delete_upper_bound.(tr2_b2));
-    tr2_status = optimise(tr2)
-    tr2_status == JuMP.OPTIMAL && (@info "🥑 we can generate cut for oΛ1 now"; break)
+    optimise(tr2) == JuMP.OPTIMAL && (@info "🥑 we can generate cut for oΛ1 now"; break)
     (JuMP.set_lower_bound.(tr2_b2, -B2BND); JuMP.set_upper_bound.(tr2_b2,  B2BND));
     @optimize_assert_optimal(tr2)
     b2 = JuMP.value.(tr2_b2) # 🥑
-    JuMP.@objective(argZ, Max, argZ_cn + ip(argZ_c_x, x) + ip(argZ_c_Y, Y) + ip(argZ_c_b2, b2)); # update obj
+    JuMP.@objective(argZ, Max, argZ_cn + ip(argZ_c_x, x) + ip(argZ_c_Y, Y) + ip(argZ_c_b2, b2));
     @optimize_assert_optimal(argZ)
     @initial_endstage_code()
 end
+
 tr2v_cpx = JuMP.dual.(tr2_cpx)
 tr2v_cn = JuMP.objective_value(tr2) - ip(tr2v_cpx, x)
 pb1 = -Y # to emphasize
-JuMP.@objective(tr1, Min, ip(brcs(CST), tr1_u) + ip(MY, tr1_b1) + oΛ1); # ❄️ stable obj
 JuMP.@constraint(tr1, oΛ1 >= tr2v_cn + ip(tr2v_cpx, tr1_x) + ip(pb1, tr1_b1)); # the 1st oΛ1 cut
+JuMP.@expression(tr1, tr1_obj_expr, tr1_obj_expr_u + tr1_obj_expr_b1 + oΛ1); # ❄️ stable obj
+JuMP.@objective(tr1, Min, tr1_obj_expr);
 function gen_quasi_iY(x, b1) # NOTE: it's ret(Y) is different from the underlying true argmaxY due to inexact Δ2. Nonetheless, the resultant ub is valid.
     fullVec = Vector{Float64}(undef, NY)
     for iY in Random.shuffle(1:NY)
@@ -215,7 +215,7 @@ function overrate_psi(x, iY)
     JuMP.@constraint(ø, sum(b2V2[r] * λ[r] for r in 1:R2) .== b2)
     JuMP.@constraint(ø, sum( xV2[r] * λ[r] for r in 1:R2) .==  x)
     JuMP.@objective(ø, Min, ip(MZ, b2) + ip(fV2, λ))
-    grb_set_silent(ø)
+    JuMP.set_silent(ø)
     optimise(ø) == JuMP.OPTIMAL || return Inf
     return JuMP.objective_value(ø)
 end
@@ -224,13 +224,11 @@ function fast_get_Y_etc(x, b1)
     Y, oΛ1_hat = yM[:, :, iY], overrate_phi1xby(x, b1, iY)
     return iY, Y, oΛ1_hat
 end
+
 macro mature_endstage_code()
     return esc(quote
-        argvZ_obj  = JuMP.objective_value(argZ) # the value of φ2 at (x, Y, b2)
-        argvZ_cn   =  JuMP.value(argZ_cn  )
-        argvZ_c_x  = JuMP.value.(argZ_c_x )
-        argvZ_c_Y  = JuMP.value.(argZ_c_Y )
-        argvZ_c_b2 = JuMP.value.(argZ_c_b2)
+        argvZ_obj  = JuMP.objective_bound(argZ)
+        argvZ_cn, argvZ_c_x, argvZ_c_Y, argvZ_c_b2 = JuMP.value(argZ_cn), JuMP.value.(argZ_c_x), JuMP.value.(argZ_c_Y), JuMP.value.(argZ_c_b2)
         if -ip(b1, Y) + ip(MZ, b2) + argvZ_obj < oΛ1_hat - UPDTOL
             push_Δ2(argvZ_obj, x, iY, b2)
         else
@@ -259,7 +257,12 @@ macro routine_code()
         b2 = JuMP.value.(tr2_b2) # 🥑
         oΛ2_check = JuMP.value(oΛ2) # ✂️
         JuMP.@objective(argZ, Max, argZ_cn + ip(argZ_c_x, x) + ip(argZ_c_Y, Y) + ip(argZ_c_b2, b2)); # update obj
-        @optimize_assert_optimal(argZ)
+        let argZ_status = optimise(argZ)
+            if argZ_status != JuMP.OPTIMAL
+                argZ_status != JuMP.TIME_LIMIT && error("argZ: $argZ_status")
+                @info "argZ: JuMP.TIME_LIMIT"
+            end
+        end
         updVec .= true
         @mature_endstage_code() # <- oΛ2_check, oΛ1_hat
         # updVec[3] && ?? reopt Y ??
@@ -320,14 +323,25 @@ function my_callback_function(cb_data, cb_where::Cint)
     end
 end
 
-(JuMP.delete_lower_bound.([tr1_u tr1_v tr1_x]); JuMP.delete_upper_bound.([tr1_u tr1_v tr1_x]))
-JuMP.set_binary.([tr1_u tr1_v tr1_x])
+(JuMP.delete_lower_bound.([tr1_u tr1_v tr1_x]); JuMP.delete_upper_bound.([tr1_u tr1_v tr1_x]); JuMP.set_binary.([tr1_u tr1_v tr1_x]));
 JuMP.MOI.set(tr1, JuMP.MOI.RawOptimizerAttribute("LazyConstraints"), 1)
 JuMP.MOI.set(tr1, Gurobi.CallbackFunction(), my_callback_function)
 function mywr(s) return open(f -> println(f, s), "output.log", "a") end # to seperate from Gurobi's warning
 mywr("A pristine output.log")
 @optimize_assert_optimal(tr1)
-lb = JuMP.objective_value(tr1);
+
+lb = JuMP.objective_bound(tr1);
 mywr("After quit optimization, lb = $lb")
+
+
+
+
+
+
+
+
+ 
+    
+
 
 
