@@ -45,6 +45,7 @@ end
 
 UPDTOL = 0.04 # If this param is inappropriate (e.g too small), program may get stuck at argZ
 B1BND, B2BND = 6.0, 3.6
+argZ_TimeLimit = 15.0
 
 G = 2
 PI = [0.45, 0.375, 0.5];
@@ -63,7 +64,7 @@ T = 24
 
 MZ = gen_load_pattern(LM)
 MY, yM, NY = let
-    YABSMAX = [3.5, 2.2]
+    YABSMAX = [1.6, 2.3]
     Pr = Distributions.Uniform.(0.2 * rand(W), YABSMAX / 1.1)
     Ybaseline = [rand(Pr[w]) for t in 1:T, w in 1:W]
     YMIN, YMAX = 0.9 * Ybaseline, 1.1 * Ybaseline # used to construct vertices
@@ -147,7 +148,7 @@ macro initial_endstage_code()
 end
 begin # initialize the end stage subprocedure
     argZ = GurobiDirectModel(); # given x, Y, b2, which are all only in obj
-    JuMP.set_attribute(argZ, "TimeLimit", 15.0);
+    JuMP.set_attribute(argZ, "TimeLimit", argZ_TimeLimit);
     JuMP.set_silent(argZ);
     JuMP.@variable(argZ, argZ_Z[eachindex(eachrow(b2)), eachindex(eachcol(b2))]);
             (JuMP.set_lower_bound.(argZ_Z, 0.9 * MZ); JuMP.set_upper_bound.(argZ_Z, 1.1 * MZ));
@@ -221,7 +222,7 @@ function overrate_psi(x, iY)
 end
 function fast_get_Y_etc(x, b1)
     iY = gen_quasi_iY(x, b1)
-    Y, oΛ1_hat = yM[:, :, iY], overrate_phi1xby(x, b1, iY)
+    Y, oΛ1_hat = yM[:, :, iY], overrate_phi1xby(x, b1, iY) # the validity of oΛ1_hat is from `gen_quasi_iY` and `overrate_phi1xby` in tamdem
     return iY, Y, oΛ1_hat
 end
 
@@ -292,15 +293,20 @@ while true
     @info "updVec = $updVec, lb = $lb"
     all(updVec .== false) && error("Initialization fails before b1 has auto-bound, consider enlarging B1BND")
 end
-
+macro cb_preamble_code()
+    esc(quote
+        function getFloat64(property)
+            resultP = Ref{Cdouble}()
+            Gurobi.GRBcbget(cb_data, cb_where, property, resultP)
+            resultP[]
+        end
+        function jvcb(x) return JuMP.callback_value(cb_data, x) end
+        cb_where == Gurobi.GRB_CB_MIPSOL || return
+        Gurobi.load_callback_variable_primal(cb_data, cb_where)
+    end)
+end
 function my_callback_function(cb_data, cb_where::Cint)
-    jvcb(x) = JuMP.callback_value(cb_data, x)
-    cb_where == Gurobi.GRB_CB_MIPSOL || return
-    lb = let resultP = Ref{Cdouble}()
-        Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPSOL_OBJBND, resultP)
-        resultP[]
-    end
-    Gurobi.load_callback_variable_primal(cb_data, cb_where)
+    @cb_preamble_code()
     x, b1 = jvcb.(tr1_x), jvcb.(tr1_b1) # 🥑
     oΛ1_check = jvcb(oΛ1) # ✂️ 
     while true # must generate violating cut unless all saturation
@@ -310,15 +316,24 @@ function my_callback_function(cb_data, cb_where::Cint)
             JuMP.MOI.submit(tr1, JuMP.MOI.LazyConstraint(cb_data),
                 JuMP.@build_constraint(oΛ1 >= tr2v_cn + ip(tr2v_cpx, tr1_x) + ip(pb1, tr1_b1))
             )
-            mywr("$lb")
-            return
+            let lb = getFloat64(Gurobi.GRB_CB_MIPSOL_OBJBND)
+                if lb > lbV[1] + UPDTOL/15 
+                    lbV[1] = lb
+                    lb = round(lb; digits = 6)
+                    t = round(getFloat64(Gurobi.GRB_CB_RUNTIME); digits = 2)
+                    mywr("$t \t\t $lb") # the main log
+                end
+            end
+            return # 1️⃣ a lazy cut is add
         else
             updVec[1] = false
         end
         if all(updVec .== false)
-            abs_gap = oΛ1_hat - oΛ1_check
-            mywr("all S⋅A⋅T, gap = $abs_gap = $oΛ1_hat - $oΛ1_check, UPDTOL = $UPDTOL, lb = $lb")
-            return
+            let lb = getFloat64(Gurobi.GRB_CB_MIPSOL_OBJBND)
+                abs_gap = oΛ1_hat - oΛ1_check
+                mywr("all S⋅A⋅T, gap = $abs_gap = $oΛ1_hat - $oΛ1_check, UPDTOL = $UPDTOL, lb = $lb")
+            end
+            return # 2️⃣ no more lazy cuts
         end
     end
 end
@@ -328,20 +343,9 @@ JuMP.MOI.set(tr1, JuMP.MOI.RawOptimizerAttribute("LazyConstraints"), 1)
 JuMP.MOI.set(tr1, Gurobi.CallbackFunction(), my_callback_function)
 function mywr(s) return open(f -> println(f, s), "output.log", "a") end # to seperate from Gurobi's warning
 mywr("A pristine output.log")
+JuMP.unset_silent(tr1)
+lbV = [-Inf]
 @optimize_assert_optimal(tr1)
 
 lb = JuMP.objective_bound(tr1);
 mywr("After quit optimization, lb = $lb")
-
-
-
-
-
-
-
-
- 
-    
-
-
-
