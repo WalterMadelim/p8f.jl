@@ -5,6 +5,78 @@ import Random
 using Logging
 import Gurobi
 
+GRB_ENV = Gurobi.Env()
+function GurobiDirectModel(str)
+    m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
+    m = JuMP.Model(() -> Gurobi.Optimizer(GRB_ENV))
+    occursin("m", str) && JuMP.set_objective_sense(m, JuMP.MIN_SENSE)
+    occursin("M", str) && JuMP.set_objective_sense(m, JuMP.MAX_SENSE)
+    occursin("s", str) && JuMP.set_silent(m)
+    m
+end
+function optimise(m) return (JuMP.optimize!(m); JuMP.termination_status(m)) end
+macro opt_ass_opt(m)
+    name_str = string(m, ": ")
+    return esc(quote
+        let status = optimise($m)
+            status == JuMP.OPTIMAL || error($name_str * string(status))
+        end
+    end)
+end
+macro set_objective_function(m, f) return esc(:(JuMP.set_objective_function($m, JuMP.@expression($m, $f)))) end # ✅ a handy macro
+
+# The primal nonconvex bilinear program
+BL = GurobiDirectModel("m"); # Minimize Objective function
+JuMP.@variable(BL, 0 <= x1 <= 1);
+JuMP.@variable(BL, 0 <= x2);
+@set_objective_function(BL, ((x2 - 2)/2)^2 - x1 * x2)
+Ⓢ = optimise(BL)
+# check the optimal solution offered by Gurobi
+JuMP.objective_value(BL) # Optimal objective value for the nonconvex bilinear program is -3
+JuMP.value(x1) # 1
+JuMP.value(x2) # 4
+
+# A convex relaxation 
+CR = GurobiDirectModel("m"); # Minimize Objective function
+JuMP.@variable(CR, 0 <= x1 <= 1);
+JuMP.@variable(CR, 0 <= x2);
+JuMP.@variable(CR, tau);
+JuMP.@constraint(CR, tau >= ((x2 - 2)/2)^2);
+JuMP.@variable(CR, t); # tau * x1
+JuMP.@variable(CR, X12);
+@set_objective_function(CR, tau - X12)
+JuMP.@constraint(CR, [tau - t + (1 - x1), tau - t - (1 - x1), x2 - X12 + 4 * x1 - 2] in JuMP.SecondOrderCone())
+JuMP.@constraint(CR, [t + x1, t - x1, X12 - 2 * x1] in JuMP.SecondOrderCone())
+Ⓢ = optimise(CR)
+# check the solution offered by the convex relaxation
+JuMP.objective_bound(CR) # Lower bound provided by the convex relaxation is -3
+JuMP.value(x1) # 1
+JuMP.value(x2) # 2
+JuMP.value(tau) # 1
+JuMP.value(t) # 1
+JuMP.value(X12) # 4
+
+# check the solution quality offered by the convex relaxation
+x1 = JuMP.value(x1)
+x2 = JuMP.value(x2)
+((x2 - 2)/2)^2 - x1 * x2 # -2
+
+# Conclusion: the primal problem's optimal cost is -3
+# the convex relaxation can provide a dual bound = -3, as well as a candidate solution who reaches the value -2
+# the dual bound is exactly tight, but the candidate solution can be improved further to close the gap (which is 1)
+
+
+
+
+
+
+import JuMP
+import LinearAlgebra.dot as ip
+import Distributions
+import Random
+using Logging
+import Gurobi
+
 # an example of bilinear programming which can be solved (ub = lb) merely via an application of RLT (relaxation linearization technique)
 # 5/3/25
 
