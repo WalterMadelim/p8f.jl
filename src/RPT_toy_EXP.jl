@@ -2,6 +2,9 @@ import JuMP
 import LinearAlgebra.dot as ip
 import MosekTools
 
+# Toy example in §4
+# 7/3/25
+
 function myModel(str)
     m = JuMP.Model(() -> MosekTools.Optimizer())
     occursin("m", str) && JuMP.set_objective_sense(m, JuMP.MIN_SENSE)
@@ -20,11 +23,11 @@ macro opt_ass_opt(m)
 end
 macro set_objective_function(m, f) return esc(:(JuMP.set_objective_function($m, JuMP.@expression($m, $f)))) end # ✅ a handy macro
 
-# The primal nonconvex bilinear program
+# p, n are epi-variables
 # Λ := x * p
 # V := x * n
 E = 2 + exp(-1);
-CR = myModel("m");
+CR = myModel("m"); # Convex Relaxation
 JuMP.@variable(CR, x[1:3] <= 10); # primal linear
 JuMP.@constraint(CR, x[1] + x[2] + 1 >= 0); # primal linear
 JuMP.@constraint(CR, [x[2] - x[3], 1, x[1]] in JuMP.MOI.ExponentialCone()); # primal convex
@@ -80,3 +83,4 @@ JuMP.@constraint(CR, [10 * x[3] - X23, 10 - x[2], 10 * p3 - Λ23] in JuMP.MOI.Ex
 JuMP.objective_bound(CR) # 19.787109815709954
 x = JuMP.value.(x) # [1.1856541749087137, 0.9203368055034131, 0.750042146869932], which is feasible by the construction of CR
 feasible_OBJVAL = ip([3, -3, 3.], x) + (x[1] + x[2] + 1) * (exp(x[1]) + exp(x[3])) # 19.787110167187194
+
