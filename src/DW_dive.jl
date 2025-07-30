@@ -38,11 +38,11 @@ end; function solve_restricted_primal(B; mip = false)
     else
         JuMP.set_silent(model) # This is an LP, used to generate fractional trial solutions
     end
-    JuMP.@variable(model, λ[j = 1:J, v = 1:length(B[j][:p])] ≥ 0); JuMP.@constraint(model, [j = 1:J], sum(λ[j, :]) == 1);
-    χ = NamedTuple[(; (k => similar(v, JuMP.VariableRef) for (k, v) = pairs(first(keys(B[j][:p]))))...) for j = 1:J]; # The "mean" vector
+    JuMP.@variable(model, λ[j = 1:J, v = 1:length(B[j])] ≥ 0); JuMP.@constraint(model, [j = 1:J], sum(λ[j, :]) == 1);
+    χ = NamedTuple[(; (k => similar(v, JuMP.VariableRef) for (k, v) = pairs(first(keys(B[j]))))...) for j = 1:J]; # The "mean" vector
     for j = 1:J, k = keys(χ[j]), i = eachindex(χ[j][k])
         χ[j][k][i] = scalar_mean = JuMP.@variable(model)
-        JuMP.@constraint(model, scalar_mean == sum(λ[j, v]nt[k][i] for (v, nt) = enumerate(keys(B[j][:p]))))
+        JuMP.@constraint(model, scalar_mean == sum(λ[j, v]nt[k][i] for (v, nt) = enumerate(keys(B[j]))))
         mip || continue
         k ∈ [:bLent, :bEV, :bDW] && JuMP.set_integer(scalar_mean)
     end
@@ -150,11 +150,10 @@ end; function parallel_CG!(B, model, θ, β)
             if Δ > 1e-11
                 @info "Δ = $Δ, at j = $j"
                 local intFullvertex = get_full_num_tuple(mj)
-                if !haskey(B[j][:p], intFullvertex)
+                if !haskey(B[j], intFullvertex)
                     local con = build_con(j, mj, θ, β)
                     local cut = @lock my_lock JuMP.add_constraint(model, con)
-                    B[j][:p][intFullvertex] = cut
-                    B[j][:d][cut] = intFullvertex
+                    B[j][intFullvertex] = cut
                     out_upd_vec[j] = true
                 end
             end
@@ -166,10 +165,9 @@ end; function condense!(B, model) # ⚠️🔴 This post-procedure could be harm
     # e.g. lose the chance to recover a integer-feasible primal solution
     # or, even if you can recover one, its quality is inferior than the one
     # recovered were this post-procedure unexecuted
-    for j = 1:J, (cut, vertex) = collect(B[j][:d]) # 🚰 condensing
+    for j = 1:J, (vertex, cut) = collect(B[j]) # 🚰 condensing
         JuMP.dual(cut) == 0 || continue
-        pop!(B[j][:p], vertex)
-        pop!(B[j][:d], cut)
+        pop!(B[j], vertex)
         JuMP.delete(model, cut) # delete one-by-one is already fast, so we don't bother reoptimizing
         JuMP.optimize!(model); JuMP.assert_is_solved_and_feasible(model; allow_local = false, dual = true)
     end; @info "Lagrangian bound is $(JuMP.objective_bound(model)) after condensing"
@@ -196,10 +194,9 @@ end; function restrict_a_frac_block!(B, model, inn)
     JuMP.delete(mj, o);
     iA = get_bool_part_vec(iv); # the Bool Anchor vector
     JuMP.fix.(get_bool_part_vec(mj), iA; force = true) # 🌳 The branching (= fixing) decision
-    for (cut, vertex) = collect(B[j][:d])
+    for (vertex, cut) = collect(B[j])
         get_bool_part_vec(vertex) == iA && continue # keep the compatible ones previously gened
-        pop!(B[j][:p], vertex)
-        pop!(B[j][:d], cut)
+        pop!(B[j], vertex)
         JuMP.delete(model, cut)
     end
     return false # don't need to stop
@@ -300,7 +297,7 @@ end; # Note: use this standard procedure to pick seed leading to proper tests
 inn = initialize_inn(D); 
 my_lock = Threads.ReentrantLock();
 model, θ, β = initialize_out(an_UB); # a concise outer model
-B = [(p = Dict{NamedTuple, JuMP.ConstraintRef}(), d = Dict{JuMP.ConstraintRef, NamedTuple}()) for j = 1:J]; # a vec of Bijections::NamedTuple
+B = [Dict{NamedTuple, JuMP.ConstraintRef}() for j = 1:J]; # a vec of Bijections::NamedTuple
 out_upd_vec = falses(J);
 parallel_CG!(B, model, θ, β); # ⚠️🔴 [deprecate] condense!(B, model)
 # Note: at this line we had derived a typically tight Lagrangian bound
