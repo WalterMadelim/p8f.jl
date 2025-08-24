@@ -1,4 +1,4 @@
-import JuMP, Gurobi; GRB_ENV = Gurobi.Env();
+import JuMP, Gurobi
 import JuMP.value as ı
 import LinearAlgebra.⋅ as ⋅
 import LinearAlgebra.norm as norm
@@ -23,7 +23,7 @@ function gen_a_D_house(ID, Drng) return (
 ) end; function gen_a_G_house(ID, Drng) return (gen_a_D_house(ID, Drng)..., G = rand(3:17, T)) end;
 function solve_compact_formulation()
     x = similar(D, NamedTuple); # store the VariableRefs in NamedTuple's
-    model = JuMP.Model(() -> Gurobi.Optimizer(GRB_ENV)); # monolithic
+    model = JuMP.Model(Gurobi.Optimizer); # monolithic
     JuMP.set_attribute(model, "MIPGap", 0);
     JuMP.set_attribute(model, "MIPGapAbs", 0);
     for (j, block) = enumerate(D) # operational detail for each individual block
@@ -95,7 +95,7 @@ function solve_compact_formulation()
 end;
 
 function initialize_out(an_UB) # an_UB ⚠️ should be valid
-    model = JuMP.Model(() -> Gurobi.Optimizer(GRB_ENV)) # outer in DantzigWolfe decomposition
+    model = JuMP.Model(Gurobi.Optimizer) # outer in DantzigWolfe decomposition
     JuMP.set_silent(model)
     JuMP.@variable(model, β[1:T] ≥ 0) # e_power per t
     JuMP.@variable(model, μ[1:T] ≥ 0) # q_power per t
@@ -109,7 +109,7 @@ function initialize_out(an_UB) # an_UB ⚠️ should be valid
 end; function initialize_inn(D)
     inn = Vector{JuMP.Model}(undef, J); # the intrablock MIP subproblems
     for (j, block) = enumerate(D)
-        model = JuMP.Model(() -> Gurobi.Optimizer(GRB_ENV))
+        model = JuMP.Model(Gurobi.Optimizer)
         JuMP.set_silent(model)
         JuMP.set_attribute(model, "Threads", 1)
         JuMP.set_attribute(model, "TimeLimit", 3)
@@ -198,13 +198,13 @@ end; function parallel_CG!(B, model, θ, β, μ, ν)
     for ite = 1:typemax(Int)
         JuMP.optimize!(model); JuMP.assert_is_solved_and_feasible(model; allow_local = false, dual = true)
         bound_of_out = JuMP.objective_bound(model) # Record
-        Β, Μ, Ν = ı.(β), ı.(μ), ı(ν) # ✂️
+        Θ, Β, Μ, Ν = ı.(θ), ı.(β), ı.(μ), ı(ν) # ✂️
         Δ_vec = zeros(J)
         Threads.@threads for j = 1:J
-            Θ_j = ı(θ[j]); mj = inn[j] # ✂️
+            local mj = inn[j] # ✂️
             reset_mj_obj!(mj, Β, Μ, Ν)
             JuMP.optimize!(mj); JuMP.assert_is_solved_and_feasible(mj; allow_local = false)
-            Δ = Θ_j - JuMP.objective_value(mj)
+            local Δ = Θ[j] - JuMP.objective_value(mj)
             if Δ > COT
                 local intFullvertex = get_full_num_tuple(mj)
                 if !haskey(B[j], intFullvertex)
