@@ -195,6 +195,7 @@ end; function get_full_num_tuple(mj)
     )); return x
 end; function parallel_CG!(B, model, θ, β, μ, ν)
     COT = 1e-11
+    num_cut = Threads.Atomic{Int}(0)
     for ite = 1:typemax(Int)
         JuMP.optimize!(model); JuMP.assert_is_solved_and_feasible(model; allow_local = false, dual = true)
         bound_of_out = JuMP.objective_bound(model) # Record
@@ -212,11 +213,12 @@ end; function parallel_CG!(B, model, θ, β, μ, ν)
                     local cut = @lock my_lock JuMP.add_constraint(model, con)
                     B[j][intFullvertex] = cut
                     Δ_vec[j] = Δ
+                    Threads.atomic_add!(num_cut, 1)
                 end
             end
         end
         max_cut_vio = maximum(Δ_vec) # Record
-        @info "ite = $ite, cut's_maxvio = $max_cut_vio, out's bound = $bound_of_out"
+        @info "ite = $ite, num_cut = $(num_cut[]) cut's_maxvio = $max_cut_vio, out's bound = $bound_of_out"
         max_cut_vio > COT && continue
         break
     end
@@ -242,8 +244,6 @@ D[4] = [gen_a_D_house(5, 0:5)];
 J = length(D);
 
 an_UB = solve_compact_formulation();
-
-
 
 model, θ, β, μ, ν = initialize_out(an_UB);
 inn = initialize_inn(D); # haskey(inn[1], :bLent) == true
