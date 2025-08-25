@@ -171,13 +171,13 @@ end; function reset_mj_obj!(mj, Β, Μ, Ν)
     term_mu = JuMP.@expression(mj, pair ? sum((q[t,1] + q[t,2])Μ[t] for t=1:T) : Μ ⋅ q)
     term_nu = JuMP.@expression(mj, sum(q)Ν)
     JuMP.@objective(mj, Min, +(mj[:prim_obj], term_beta, term_mu, term_nu))
-end; function build_con(j, mj, θ, β, μ, ν)
+end; function build_con(model, j, mj, θ, β, μ, ν)
     pair = haskey(mj, :bLent)
     pBus, q = ı.(mj[:pBus]), ı.(mj[:q])
-    term_beta = JuMP.@expression(mj, pair ? sum((pBus[t,1] + pBus[t,2])β[t] for t=1:T) : β ⋅ pBus)
-    term_mu = JuMP.@expression(mj, pair ? sum((q[t,1] + q[t,2])μ[t] for t=1:T) : μ ⋅ q)
-    term_nu = JuMP.@expression(mj, sum(q)ν)
-    cut_term = JuMP.@expression(mj, +(ı(mj[:prim_obj]), term_beta, term_mu, term_nu))
+    term_beta = JuMP.@expression(model, pair ? sum((pBus[t,1] + pBus[t,2])β[t] for t=1:T) : β ⋅ pBus)
+    term_mu = JuMP.@expression(model, pair ? sum((q[t,1] + q[t,2])μ[t] for t=1:T) : μ ⋅ q)
+    term_nu = JuMP.@expression(model, sum(q)ν)
+    cut_term = JuMP.@expression(model, +(ı(mj[:prim_obj]), term_beta, term_mu, term_nu))
     return JuMP.@build_constraint(θ[j] ≤ cut_term)
 end; function get_full_num_tuple(mj)
     x = (
@@ -209,7 +209,7 @@ end; function parallel_CG!(B, model, θ, β, μ, ν)
             if Δ > COT
                 local intFullvertex = get_full_num_tuple(mj)
                 if !haskey(B[j], intFullvertex)
-                    local con = build_con(j, mj, θ, β, μ, ν)
+                    local con = build_con(model, j, mj, θ, β, μ, ν)
                     local cut = @lock my_lock JuMP.add_constraint(model, con)
                     B[j][intFullvertex] = cut
                     Δ_vec[j] = Δ
@@ -224,31 +224,28 @@ end; function parallel_CG!(B, model, θ, β, μ, ν)
     end
 end;
 
-
 seed = abs(rand(Int))
 seed = 2004686255641684212
 Random.seed!(seed)
 
-T = 24; # global data
-MarketPrice = [2, 1, 1, 1, 1, 1, 3, 5, 6, 7, 8, 9, 9, 8, 8, 9, 10, 11, 9, 6, 5, 3, 2, 2];
-P_AGR = 47;
-Q_AGR = 27;
-E_AGR = 200;
-O = [27.0, 27.2, 27.5, 27.8, 28.5, 30.0, 32.5, 35.0, 37.5, 39.5, 41.0, 42.0, 41.5, 40.5, 39.0, 37.0, 34.5, 32.0, 30.0, 29.0, 28.0, 27.5, 27.2, 27.0]; # global data: outdoor temperature
+const T = 24; # global data
+const MarketPrice = [2, 1, 1, 1, 1, 1, 3, 5, 6, 7, 8, 9, 9, 8, 8, 9, 10, 11, 9, 6, 5, 3, 2, 2];
+const P_AGR = 47;
+const Q_AGR = 27;
+const E_AGR = 200;
+const O = [27.0, 27.2, 27.5, 27.8, 28.5, 30.0, 32.5, 35.0, 37.5, 39.5, 41.0, 42.0, 41.5, 40.5, 39.0, 37.0, 34.5, 32.0, 30.0, 29.0, 28.0, 27.5, 27.2, 27.0]; # global data: outdoor temperature
 
-D = Vector{Vector{NamedTuple}}(undef, 4); # generate all the households
+const D = Vector{Vector{NamedTuple}}(undef, 4); # generate all the households
 D[1] = [gen_a_G_house(1, 1:3), gen_a_D_house(2, 0:5)];
 D[2] = [gen_a_D_house(3, 0:5)];
 D[3] = [gen_a_D_house(4, 0:6)];
 D[4] = [gen_a_D_house(5, 0:5)];
-J = length(D);
+const J = length(D);
 
-an_UB = solve_compact_formulation();
+const an_UB = solve_compact_formulation();
 
 model, θ, β, μ, ν = initialize_out(an_UB);
 inn = initialize_inn(D); # haskey(inn[1], :bLent) == true
 my_lock = Threads.ReentrantLock();
-
-B = [Dict{NamedTuple, JuMP.ConstraintRef}() for j = 1:J]; # a vec of Bijections::NamedTuple
-
+const B = [Dict{NamedTuple, JuMP.ConstraintRef}() for j = 1:J]; # a vec of Bijections::NamedTuple
 parallel_CG!(B, model, θ, β, μ, ν)
