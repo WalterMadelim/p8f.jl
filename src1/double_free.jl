@@ -2,16 +2,17 @@ import JuMP, Gurobi
 import JuMP.value as ı
 import LinearAlgebra.⋅ as ⋅
 import Statistics, Random
-const GRB_ENV = Gurobi.Env();
+# const GRB_ENV = Gurobi.Env();
 
 # const my_seed = 3 with K = 40 This case generate very hard subproblems, do not adopt this
 # const my_seed = 6 This case is not okay either
 # const my_seed = 17 [tough] This will cause time out
 # const my_seed = 18 # fail in fill_model_D_X!
 const my_seed = 10;
-const K = 24;
-# const LOGIS = 102;
-const LOGIS = 253;
+Random.seed!(my_seed);
+
+const K = 1;
+const LOGIS = 10;
 const MAXINT = typemax(Int);
 
 macro get_int_decision(model, expr) return esc(quote
@@ -37,8 +38,10 @@ function solve_mst_and_up_value!(model, s, θ, β)
     JuMP.optimize!(model)
     JuMP.termination_status(model) == JuMP.OPTIMAL || error()
     s.ub.x = JuMP.objective_bound(model)
-    @. s.β = ı(β)
-    @. s.θ = ı(θ)
+    beta = JuMP.value.(β)
+    theta = JuMP.value.(θ)
+    @. s.β = beta
+    @. s.θ = theta
 end;
 function shot!(ref; model = model, θ = θ, β = β, rEF = rEF)
     s = rEF.x
@@ -49,12 +52,12 @@ function shot!(ref; model = model, θ = θ, β = β, rEF = rEF)
 end;
 ncuts(model) = JuMP.num_constraints(model, JuMP.AffExpr, JuMP.MOI.LessThan{Float64})
 
-function get_simple_model()
-    m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
-    JuMP.set_silent(m)
-    JuMP.set_attribute(m, "Threads", 1)
-    m
-end;
+# function get_simple_model()
+#     m = JuMP.direct_model(Gurobi.Optimizer(GRB_ENV))
+#     JuMP.set_silent(m)
+#     JuMP.set_attribute(m, "Threads", 1)
+#     m
+# end;
 function get_safe_model()
     m = JuMP.direct_model(Gurobi.Optimizer())
     JuMP.set_silent(m)
@@ -148,7 +151,7 @@ function add_self_EV_module!(model, P_EV, E_EV) # self means a household in a bl
     return bEV, pEV # bEV can be _inferred from_ pEV
 end;
 function pc_self_P_BUS(D, U, P_EV, E_EV, O, CND, INR, COP, Q_I, OH, OΔ, P_AC)::Int
-    model = get_simple_model()
+    model = get_safe_model()
     bU, pU = add_U_module!(model, U)
     bEV, pEV = add_self_EV_module!(model, P_EV, E_EV)
     o, q, pAC = add_AC_module!(model, O, CND, INR, COP, Q_I, 0, OH, OΔ, P_AC) # Q_BUS = 0
@@ -200,7 +203,7 @@ end;
 
 ###############################################################
 function get_a_paired_block(O)::NamedTuple
-    model = get_simple_model() # for a block who has a lender and a borrower house
+    model = get_safe_model() # for a block who has a lender and a borrower house
     # 6 lines
     G = rand(0:17, T)
     D_1 = rand(0:5, T)
@@ -291,7 +294,7 @@ function add_a_self_block!(model, d::NamedTuple)::NamedTuple
     (;pBus, bEV, bU, q)
 end;
 function initialize_out()
-    model = get_simple_model()
+    model = get_safe_model()
     JuMP.@variable(model, β[1:T] ≥ 0)
     JuMP.@constraint(model, sum(β) == 1) # ⚠️ special
     JuMP.@variable(model, θ[1:J])
@@ -379,7 +382,6 @@ function fill_model_D_X!(v::Vector, X)
     end
     return foreach(wait, tasks)
 end;
-Random.seed!(my_seed);
 
 const J = (K)LOGIS;
 const T = 24;
@@ -411,6 +413,8 @@ function warm()
 end
 warm(); @assert ncuts(model) === J; shot!(ref);
 
+
+
 function main(; ref = ref, model = model)
     tabs0 = time()
     istaskoccupying = !istaskdone
@@ -419,20 +423,23 @@ function main(; ref = ref, model = model)
     mst_task = Threads.@spawn(shot!(ref))
     tasks = map(j -> Threads.@spawn(subproblemˈs_duty(j; update_snap = true)), 1:J)
     while true
-        if count(istaskoccupying, tasks) < 255
+        if rand(Bool) < 0.5
             if istaskdone(mst_task)
                 wait(mst_task)
                 mst_task = Threads.@spawn(shot!(ref)) # needs to re-solve master
             end
         end
-        while count(istaskoccupying, tasks) < 254
+        while rand(Bool) < 0.5
             if istaskdone(tasks[j])
                 wait(tasks[j])
                 tasks[j] = Threads.@spawn(subproblemˈs_duty(j; update_snap = true)) # schedule a new one
             end
             j = next(j) # go to ask the next block
         end
-        "occupation = $(count(istaskoccupying, tasks)), ub = $(ref.x.ub.x), #cut = $(ncuts(model)), $(time()-tabs0) sec" |> println
+        "$(time()-tabs0) sec" |> println
     end
 end;
 main()
+
+
+# count(istaskoccupying, tasks) < 255
